@@ -314,12 +314,18 @@ def ingest_city(city: str, date_from: datetime, date_to: datetime) -> int:
 #     return total
 
 
-# #----Run directly for initial backfill----
+if __name__ == "__main__":
+    logging.basicConfig(
+        level=logging.INFO,
+        format="%(asctime)s %(levelname)s %(name)s: %(message)s"
+    )
 
-# if __name__ == "__main__":
-#     logging.basicConfig(
-#         level=logging.INFO,
-#         format="%(asctime)s %(levelname)s %(name)s: %(message)s"
-#     )
-#     for city in CITIES:
-#         backfill_city(city, years=2)
+    from datetime import datetime, timedelta, timezone
+
+    date_to   = datetime.now(timezone.utc)
+    date_from = date_to - timedelta(days=3)
+
+    for city in CITIES:
+        logger.info(f"Testing live fetch for {city}...")
+        count = ingest_city(city, date_from, date_to)
+        logger.info(f"{city}: {count} records saved")

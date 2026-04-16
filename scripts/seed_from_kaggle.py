@@ -1,6 +1,4 @@
 """
-scripts/seed_from_kaggle.py
-
 Seeds data/raw/ AND data/raw/{city}/weather/ from the
 Kaggle dataset: Air Quality Dataset: Indian Cities (2022-2025)
 (bhautikvekariya21/air-quality-dataset-indian-cities-2022-2025)
@@ -39,10 +37,7 @@ CITY_VARIANTS = {
     "Bengaluru": ["Bengaluru", "bengaluru", "Bangalore"],
 }
 
-# ── Column mapping ─────────────────────────────────────────────────────────
-# Maps Kaggle column names → our standard internal names
-# Left  = Kaggle column name (from the dataset description)
-# Right = our internal column name used by Spark pipeline + trainer
+#---Column mapping---
 
 AQI_COLS = {
     "Datetime":      "timestamp",
@@ -194,14 +189,11 @@ def extract_weather(df: pd.DataFrame, city: str) -> pd.DataFrame:
 
         # Unit conversion: wind speed km/h → m/s
         # OpenMeteo API returns m/s but this dataset uses km/h
-        # Prophet regressor values must be consistent between
-        # training (Kaggle) and inference (OpenMeteo API)
         if kaggle_col == "Wind_Speed_10m_kmh":
             vals = vals / 3.6   # km/h ÷ 3.6 = m/s
 
         weather[internal_col] = vals
 
-    # Add bonus India-specific columns if present
     for kaggle_col, internal_col in BONUS_COLS.items():
         if kaggle_col in city_df.columns:
             weather[internal_col] = city_df[kaggle_col].values
@@ -354,11 +346,6 @@ def main():
     print(f"Total weather records: {total_wx:,}")
 
     verify()
-
-    print("\nNext steps:")
-    print("  1. Run OpenAQ live fetch to append recent data")
-    print("  2. Run weather.py to fetch recent OpenMeteo forecast")
-    print("  3. Run src/features/pipeline.py to build features")
 
 
 if __name__ == "__main__":

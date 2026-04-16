@@ -186,10 +186,22 @@ def get_weather_forecast(
 #     return total
 
 
-# if __name__ == "__main__":
-#     logging.basicConfig(
-#         level=logging.INFO,
-#         format="%(asctime)s %(levelname)s %(name)s: %(message)s"
-#     )
-#     for city in CITIES:
-#         backfill_weather(city, years=2)
+if __name__ == "__main__":
+    logging.basicConfig(
+        level=logging.INFO,
+        format="%(asctime)s %(levelname)s %(name)s: %(message)s"
+    )
+
+    # Kaggle covers up to end of 2025
+    # Fetch from 2025-01-01 to today to fill the gap
+    date_from = datetime(2025, 1, 1, tzinfo=timezone.utc)
+    date_to   = datetime.now(timezone.utc)
+
+    for city in CITIES:
+        logger.info(f"Fetching recent weather for {city}...")
+        df = fetch_weather(city, date_from, date_to)
+        if not df.empty:
+            save_weather(city, df)
+            logger.info(f"{city}: {len(df)} records saved")
+        else:
+            logger.warning(f"{city}: no weather data returned")
