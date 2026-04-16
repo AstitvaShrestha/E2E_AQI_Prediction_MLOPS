@@ -9,7 +9,7 @@ CITIES = {
         "lon": 77.2090,
         "country": "India",
         "timezone": "Asia/Kolkata",
-        "openaq_location_ids": [13, 15, 16, 17, 50, 103, 235, 236, 431, 2503, 2587, 2597, 5404, 5509, 5540, 5541, 5570, 5581, 5586, 5598],   # CPCB stations
+        "openaq_location_ids": [5570, 5541, 5610, 235, 301, 5616, 17, 50, 5586, 5588, 5404, 5598],   # CPCB stations
         "aqi_profile": "severe_winter",               
     },
     "Mumbai": {
