@@ -16,10 +16,8 @@ from urllib3.util.retry import Retry
 from dotenv import load_dotenv
 
 try:
-    # Prefer local package import to avoid collisions with other workspace projects.
     from ..config import CITIES, pm25_to_aqi
 except ImportError:
-    # Fallback when running this file directly (python src/ingest/openaq.py).
     project_root = Path(__file__).resolve().parents[2]
     if str(project_root) not in sys.path:
         sys.path.insert(0, str(project_root))
@@ -27,21 +25,13 @@ except ImportError:
 
 load_dotenv()
 
-logger = logging.getLogger(__name__)
-
+logger         = logging.getLogger(__name__)
 OPENAQ_API_KEY = os.getenv("OPENAQ_API_KEY", "")
 OPENAQ_BASE    = "https://api.openaq.org/v3"
 DATA_DIR       = Path(os.getenv("DATA_DIR", "data"))
 
 
-# ---Session with auto-retry---
-
 def make_session() -> requests.Session:
-    """
-    Requests session with exponential backoff retry.
-    Handles 429 rate limit and 5xx server errors automatically.
-    backoff_factor=1 means waits: 1s, 2s, 4s, 8s, 16s between retries.
-    """
     session = requests.Session()
     retry   = Retry(
         total=5,
@@ -57,56 +47,82 @@ def make_session() -> requests.Session:
 SESSION = make_session()
 
 
-# ---Sensor ID lookup----
-
 def get_pm25_sensor_id(location_id: int, headers: dict) -> int | None:
     """
-    Given an OpenAQ location ID, return the sensor ID for PM2.5.
-    One location has multiple sensors (PM10, NO2, etc) — we only want PM2.5.
-    Returns None if no PM2.5 sensor exists at this location.
+    Return the ACTIVE PM2.5 sensor at a location.
+    Picks highest sensor ID = most recently registered = active sensor.
+    Legacy sensors have low IDs (< 100,000).
+    Active sensors have high IDs (> 12,000,000).
     """
     url = f"{OPENAQ_BASE}/locations/{location_id}/sensors"
     try:
         resp = SESSION.get(url, headers=headers, timeout=30)
         resp.raise_for_status()
         sensors = resp.json().get("results", [])
-        for s in sensors:
-            if s.get("parameter", {}).get("name", "").lower() == "pm25":
-                return s["id"]
-        logger.warning(f"No PM2.5 sensor at location {location_id}")
-        return None
+
+        pm25_sensors = [
+            s for s in sensors
+            if s.get("parameter", {}).get("name", "").lower() == "pm25"
+        ]
+
+        if not pm25_sensors:
+            logger.warning(f"No PM2.5 sensor at location {location_id}")
+            return None
+
+        # Highest ID = most recently registered = active one
+        best = max(pm25_sensors, key=lambda s: s["id"])
+        logger.debug(
+            f"Location {location_id}: picked sensor {best['id']} "
+            f"from {len(pm25_sensors)} PM2.5 sensors"
+        )
+        return best["id"]
+
     except requests.RequestException as e:
         logger.error(f"Sensor lookup failed for location {location_id}: {e}")
         return None
 
 
-#---Raw result parser----
+def get_latest_reading(sensor_id: int, headers: dict) -> dict | None:
+    """
+    Fetch the single most recent hourly reading for a sensor.
+    Uses sort_order=desc to get newest first.
+    Returns dict with value and timestamp, or None if no data.
+    """
+    url    = f"{OPENAQ_BASE}/sensors/{sensor_id}/hours"
+    params = {
+        "limit":      1,
+        "order_by":   "datetime",
+        "sort_order": "desc",
+    }
+    try:
+        resp = SESSION.get(url, params=params, headers=headers, timeout=30)
+        resp.raise_for_status()
+        results = resp.json().get("results", [])
+        if not results:
+            return None
+        r = results[0]
+        return {
+            "value":     r.get("value"),
+            "timestamp": r["period"]["datetimeTo"]["utc"],
+            "coverage":  r.get("coverage", {}).get("percentCoverage", 0),
+        }
+    except requests.RequestException as e:
+        logger.error(f"Latest reading failed for sensor {sensor_id}: {e}")
+        return None
+
 
 def _parse_results(all_results: list) -> pd.DataFrame:
-    """
-    Parse raw API result list into a clean DataFrame.
-    Applies three quality filters:
-      - coverage_pct >= 50  (sensor was active for at least half the hour)
-      - hasFlags == False   (CPCB has not flagged the reading)
-      - value is not None   (sensor was not completely offline)
-    Also validates PM2.5 is within physical range 0-999 µg/m³.
-    """
     if not all_results:
         return pd.DataFrame()
 
     rows = []
     for r in all_results:
         try:
-            # Quality filter 1 — data coverage within the hour
             coverage = r.get("coverage", {}).get("percentCoverage", 100)
             if coverage < 50:
                 continue
-
-            # Quality filter 2 — CPCB quality flags
             if r.get("flagInfo", {}).get("hasFlags", False):
                 continue
-
-            # Quality filter 3 — null value means sensor was offline
             value = r.get("value")
             if value is None:
                 continue
@@ -122,7 +138,6 @@ def _parse_results(all_results: list) -> pd.DataFrame:
                 "pm25_sd":      r.get("summary", {}).get("sd"),
                 "coverage_pct": float(coverage),
             })
-
         except (KeyError, TypeError, ValueError) as e:
             logger.warning(f"Skipping malformed record: {e}")
             continue
@@ -131,22 +146,13 @@ def _parse_results(all_results: list) -> pd.DataFrame:
         return pd.DataFrame()
 
     df = pd.DataFrame(rows)
-
-    # Physical bounds — PM2.5 cannot be negative or above 999 µg/m³
     df = df[(df["pm25"] >= 0) & (df["pm25"] <= 999)].copy()
-
-    # Compute AQI from PM2.5 using EPA formula (from config.py)
     df["aqi"] = df["pm25"].apply(pm25_to_aqi)
-
-    # Sort chronologically, remove any duplicates
     df = (df.sort_values("timestamp")
             .drop_duplicates(subset=["timestamp"])
             .reset_index(drop=True))
-
     return df
 
-
-#---Hourly fetch with pagination---
 
 def fetch_hourly_readings(
     sensor_id: int,
@@ -155,13 +161,6 @@ def fetch_hourly_readings(
     headers:   dict,
     max_pages: int = 25,
 ) -> pd.DataFrame:
-    """
-    Fetch all hourly readings for one sensor between two datetimes.
-    Handles pagination (1000 records per page max).
-    Sleeps 1.1s between pages to respect 60 req/min rate limit.
-    Uses a while loop (not for loop) so we can retry the same page
-    on 429 without skipping ahead.
-    """
     all_results = []
     page        = 1
 
@@ -173,56 +172,37 @@ def fetch_hourly_readings(
             "limit":         1000,
             "page":          page,
         }
-
         try:
             resp = SESSION.get(url, params=params, headers=headers, timeout=30)
 
-            # Handle 429 manually for explicit logging
             if resp.status_code == 429:
                 wait = int(resp.headers.get("Retry-After", 60))
-                logger.warning(
-                    f"Rate limited on page {page} — waiting {wait}s"
-                )
+                logger.warning(f"Rate limited on page {page} — waiting {wait}s")
                 time.sleep(wait)
-                continue          # retry same page — do NOT increment page
+                continue
 
             resp.raise_for_status()
             results = resp.json().get("results", [])
 
             if not results:
-                break             # no more data — stop paginating
+                break
 
             all_results.extend(results)
-            logger.debug(
-                f"Sensor {sensor_id} page {page}: {len(results)} records"
-            )
-
-            # Sleep between pages — stay under 60 req/min rate limit
             time.sleep(1.1)
 
             if len(results) < 1000:
-                break             # last page — fewer than max means no more
+                break
 
-            page += 1             # only advance if page succeeded
+            page += 1
 
         except requests.RequestException as e:
-            logger.error(
-                f"Request failed for sensor {sensor_id} page {page}: {e}"
-            )
+            logger.error(f"Request failed for sensor {sensor_id} page {page}: {e}")
             break
 
     return _parse_results(all_results)
 
 
-#----City-level ingestion----
-
 def ingest_city(city: str, date_from: datetime, date_to: datetime) -> int:
-    """
-    Fetch PM2.5 for all monitoring stations in a city.
-    Averages readings across stations for each hour.
-    Saves one Parquet file per day under data/raw/{city}/date=YYYY-MM-DD.parquet
-    Returns total number of records saved.
-    """
     cfg      = CITIES[city]
     headers  = {"X-API-Key": OPENAQ_API_KEY} if OPENAQ_API_KEY else {}
     city_key = city.lower().replace(" ", "_")
@@ -248,32 +228,25 @@ def ingest_city(city: str, date_from: datetime, date_to: datetime) -> int:
         logger.error(f"No data for {city} ({date_from.date()} – {date_to.date()})")
         return 0
 
-    # Average PM2.5 across stations at same timestamp
-    # pm25_min = smallest reading across all stations that hour
-    # pm25_max = largest reading across all stations that hour
     combined = (
         pd.concat(all_dfs)
         .groupby("timestamp")
         .agg(
             pm25         = ("pm25",         "mean"),
-            pm25_min     = ("pm25_min",     "min"),   # true minimum
-            pm25_max     = ("pm25_max",     "max"),   # true maximum
+            pm25_min     = ("pm25_min",     "min"),
+            pm25_max     = ("pm25_max",     "max"),
             pm25_sd      = ("pm25_sd",      "mean"),
             coverage_pct = ("coverage_pct", "mean"),
             city         = ("city",         "first"),
         )
         .reset_index()
     )
-
     combined["aqi"] = combined["pm25"].apply(pm25_to_aqi).astype(int)
 
-    # Save one Parquet file per day
     records_saved = 0
     for date, group in combined.groupby(combined["timestamp"].dt.date):
         out_path = city_dir / f"date={date}.parquet"
-
         if out_path.exists():
-            # File exists — merge to handle overlapping fetches
             existing = pd.read_parquet(out_path)
             group = (
                 pd.concat([existing, group])
@@ -281,8 +254,6 @@ def ingest_city(city: str, date_from: datetime, date_to: datetime) -> int:
                 .sort_values("timestamp")
                 .reset_index(drop=True)
             )
-
-        
         group.to_parquet(out_path, index=False)
         records_saved += len(group)
 
@@ -290,42 +261,73 @@ def ingest_city(city: str, date_from: datetime, date_to: datetime) -> int:
     return records_saved
 
 
-# #----Historical backfill----
+def check_live_data(city: str) -> None:
+    """
+    Test-only function — checks latest available reading for each
+    location in a city WITHOUT saving anything to disk.
+    Shows sensor ID, latest timestamp, PM2.5 value, and data age.
+    """
+    cfg     = CITIES[city]
+    headers = {"X-API-Key": OPENAQ_API_KEY} if OPENAQ_API_KEY else {}
+    now     = datetime.now(timezone.utc)
 
-# def backfill_city(city: str, years: int = 2) -> int:
-#     """
-#     One-time 2-year historical data fetch.
-#     Chunks into 30-day windows so each chunk fits in one API page.
-#     30 days x 24 hours = 720 records = well under 1000/page limit.
-#     """
-#     total     = 0
-#     date_to   = datetime.now(timezone.utc)
-#     date_from = date_to - timedelta(days=365 * years)
-#     current   = date_from
+    print(f"\n{'='*55}")
+    print(f"  {city} — {len(cfg['openaq_location_ids'])} locations")
+    print(f"{'='*55}")
 
-#     while current < date_to:
-#         chunk_end = min(current + timedelta(days=30), date_to)
-#         logger.info(f"Backfilling {city}: {current.date()} → {chunk_end.date()}")
-#         count   = ingest_city(city, current, chunk_end)
-#         total  += count
-#         current = chunk_end
+    if not cfg["openaq_location_ids"]:
+        print("  No location IDs configured")
+        return
 
-#     logger.info(f"Backfill complete for {city}: {total} total records")
-#     return total
+    working = 0
+    for loc_id in cfg["openaq_location_ids"]:
+        sensor_id = get_pm25_sensor_id(loc_id, headers)
+        if sensor_id is None:
+            print(f"  Loc {loc_id}: no PM2.5 sensor")
+            continue
+
+        reading = get_latest_reading(sensor_id, headers)
+        if not reading:
+            print(f"  Loc {loc_id}: sensor {sensor_id} — NO DATA")
+            continue
+
+        ts_str   = reading["timestamp"]
+        value    = reading["value"]
+        coverage = reading["coverage"]
+
+        # Calculate how old the data is
+        ts       = datetime.fromisoformat(ts_str.replace("Z", "+00:00"))
+        age_hrs  = (now - ts).total_seconds() / 3600
+
+        if value is not None:
+            aqi = pm25_to_aqi(float(value))
+            print(f"  Loc {loc_id}: sensor {sensor_id}")
+            print(f"    PM2.5:    {value:.1f} µg/m³")
+            print(f"    AQI:      {aqi}  (India CPCB)")
+            print(f"    Latest:   {ts_str}")
+            print(f"    Data age: {age_hrs:.1f} hours ago")
+            print(f"    Coverage: {coverage:.0f}%")
+            working += 1
+        else:
+            print(f"  Loc {loc_id}: sensor {sensor_id} — null value")
+
+        time.sleep(0.5)
+
+    print(f"\n  Summary: {working}/{len(cfg['openaq_location_ids'])} "
+          f"locations have data")
 
 
 if __name__ == "__main__":
     logging.basicConfig(
-        level=logging.INFO,
-        format="%(asctime)s %(levelname)s %(name)s: %(message)s"
+        level=logging.WARNING,   # suppress INFO noise during test
+        format="%(asctime)s %(levelname)s: %(message)s"
     )
 
-    from datetime import datetime, timedelta, timezone
-
-    date_to   = datetime.now(timezone.utc)
-    date_from = date_to - timedelta(days=3)
+    print("OpenAQ live data check — no data saved to disk\n")
+    print(f"Checking at: {datetime.now(timezone.utc).strftime('%Y-%m-%d %H:%M UTC')}")
 
     for city in CITIES:
-        logger.info(f"Testing live fetch for {city}...")
-        count = ingest_city(city, date_from, date_to)
-        logger.info(f"{city}: {count} records saved")
+        check_live_data(city)
+
+    print(f"\n{'='*55}")
+    print("Done. Run ingest_city() to save data.")

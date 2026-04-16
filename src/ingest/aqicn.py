@@ -292,7 +292,7 @@ if __name__ == "__main__":
         if reading:
             print(f"\n{city}:")
             print(f"  US AQI:    {reading['aqi_us']}")
-            print(f"  India AQI: {reading['aqi']}  ← used by pipeline")
+            print(f"  India AQI: {reading['aqi']} <- used by pipeline")
             print(f"  Temp:      {reading['temperature']} °C")
             print(f"  Humidity:  {reading['humidity']} %")
             print(f"  Wind:      {reading['wind_speed']} m/s "
