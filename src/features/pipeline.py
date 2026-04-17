@@ -13,7 +13,7 @@ import logging
 import numpy as np
 import pandas as pd
 from pathlib import Path
-from datetime import datetime
+from datetime import datetime, timezone
 from dotenv import load_dotenv
 
 load_dotenv()
@@ -241,7 +241,7 @@ def _build_with_pandas(city: str) -> pd.DataFrame:
     city_key = city.lower().replace(" ", "_")
     raw_dir  = DATA_DIR / "raw" / city_key
 
-    # ── Load AQI ──────────────────────────────────────────────────
+    # Load AQI
     aqi_files = sorted(raw_dir.glob("date=*.parquet"))
     if not aqi_files:
         raise FileNotFoundError(
@@ -260,7 +260,7 @@ def _build_with_pandas(city: str) -> pd.DataFrame:
               .drop_duplicates(subset=["timestamp"])
               .reset_index(drop=True))
 
-    # ── Load weather ──────────────────────────────────────────────
+    # Load weather data
     weather_dir   = raw_dir / "weather"
     weather_files = sorted(weather_dir.glob("date=*.parquet")) \
                     if weather_dir.exists() else []
@@ -312,11 +312,11 @@ def _build_with_pandas(city: str) -> pd.DataFrame:
 
     df = df.sort_values("timestamp").reset_index(drop=True)
 
-    # ── Lag features ──────────────────────────────────────────────
+    # Lag features
     for lag_h in LAG_HOURS:
         df[f"aqi_lag_{lag_h}h"] = df["aqi"].shift(lag_h)
 
-    # ── Rolling window statistics ──────────────────────────────────
+    # Rolling window statistics
     for hours, name in [(6, "6h"), (24, "24h"), (168, "7d")]:
         df[f"aqi_roll_mean_{name}"] = (
             df["aqi"].rolling(hours, min_periods=1).mean()
@@ -328,7 +328,7 @@ def _build_with_pandas(city: str) -> pd.DataFrame:
             df["aqi"].rolling(hours, min_periods=1).max()
         )
 
-    # ── Calendar features ──────────────────────────────────────────
+    # Calendar features
     df["hour"]         = df["timestamp"].dt.hour
     df["dayofweek"]    = df["timestamp"].dt.dayofweek
     df["month"]        = df["timestamp"].dt.month
@@ -338,7 +338,7 @@ def _build_with_pandas(city: str) -> pd.DataFrame:
         df["hour"].between(17, 20)
     ).astype(int)
 
-    # ── Cyclical encodings ─────────────────────────────────────────
+    # Cyclical encodings
     df["hour_sin"]  = np.sin(2 * np.pi * df["hour"]      / 24)
     df["hour_cos"]  = np.cos(2 * np.pi * df["hour"]      / 24)
     df["dow_sin"]   = np.sin(2 * np.pi * df["dayofweek"] / 7)
@@ -346,7 +346,7 @@ def _build_with_pandas(city: str) -> pd.DataFrame:
     df["month_sin"] = np.sin(2 * np.pi * df["month"]     / 12)
     df["month_cos"] = np.cos(2 * np.pi * df["month"]     / 12)
 
-    # ── Rename to Prophet convention ───────────────────────────────
+    # Rename to Prophet convention
     df = df.rename(columns={"timestamp": "ds", "aqi": "y"})
     df["city"] = city
 
@@ -359,61 +359,117 @@ def _build_with_pandas(city: str) -> pd.DataFrame:
               .sort_values("ds")
               .reset_index(drop=True))
 
-def save_features(city, df):
-    """Save processed features to Parquet — DVC tracks this file."""
 
+def save_features(city, df):
+    """
+    Save processed feature DataFrame to Parquet - DVC tracks this file
+    """
     out_dir = DATA_DIR / "processed" / city.lower().replace(" ", "_")
     out_dir.mkdir(parents=True, exist_ok=True)
     out_path = out_dir / "features.parquet"
     df.to_parquet(out_path, index=False)
-    logger.info(f"Saved features for {city}: {len(df)} rows -> {out_path}")
+    logger.info(
+        f"Saved features for {city}: {len(df)} rows → {out_path}"
+    )
     return out_path
 
+
+# Baseline stats for drift detection
 
 def compute_baseline_stats(city, df):
     """
     Compute and save baseline distribution statistics.
-    Called once during initial setup — used for drift detection.
+    Called once during initial setup.
+    Used by drift.py (KS-test) to detect when live data
+    diverges from training distribution.
     """
-
     baseline_dir = DATA_DIR / "baseline"
     baseline_dir.mkdir(parents=True, exist_ok=True)
+    city_key = city.lower().replace(" ", "_")
 
     stats = {
-        "city":           city,
-        "computed_at":    datetime.utcnow().isoformat(),
-        "aqi_mean":       float(df["y"].mean()),
-        "aqi_std":        float(df["y"].std()),
-        "aqi_median":     float(df["y"].median()),
-        "aqi_p25":        float(df["y"].quantile(0.25)),
-        "aqi_p75":        float(df["y"].quantile(0.75)),
-        "wind_mean":      float(df["wind_speed_10m"].mean())
-                          if "wind_speed_10m" in df.columns else 5.0,
-        "temp_mean":      float(df["temperature_2m"].mean())
-                          if "temperature_2m" in df.columns else 25.0,
-        "n_samples":      int(len(df)),
+        "city":        city,
+        "computed_at": datetime.now(timezone.utc).isoformat(),
+        "n_samples":   int(len(df)),
+        "aqi_mean":    round(float(df["y"].mean()),   2),
+        "aqi_std":     round(float(df["y"].std()),    2),
+        "aqi_median":  round(float(df["y"].median()), 2),
+        "aqi_p25":     round(float(df["y"].quantile(0.25)), 2),
+        "aqi_p75":     round(float(df["y"].quantile(0.75)), 2),
+        "aqi_p95":     round(float(df["y"].quantile(0.95)), 2),
+        "wind_mean":   round(float(df["wind_speed_10m"].mean()), 2)
+                       if "wind_speed_10m" in df.columns else None,
+        "temp_mean":   round(float(df["temperature_2m"].mean()), 2)
+                       if "temperature_2m" in df.columns else None,
     }
 
-
-    # Save raw baseline AQI distribution for KS-test
+    # Save raw AQI distribution for KS-test comparisons
     baseline_df = df[["ds", "y"]].rename(columns={"y": "aqi"}).copy()
     baseline_df.to_parquet(
-        baseline_dir / f"{city.lower().replace(' ', '_')}_baseline.parquet",
-        index=False,
+        baseline_dir / f"{city_key}_baseline.parquet",
+        index=False
     )
 
-    with open(baseline_dir / f"{city.lower().replace(' ', '_')}_stats.json", "w") as f:
+    with open(baseline_dir / f"{city_key}_stats.json", "w") as f:
         json.dump(stats, f, indent=2)
 
-    logger.info(f"Baseline stats saved for {city}")
+    logger.info(
+        f"Baseline saved for {city}: "
+        f"mean={stats['aqi_mean']}, std={stats['aqi_std']}, "
+        f"n={stats['n_samples']}"
+    )
     return stats
 
+
+
 if __name__ == "__main__":
-    logging.basicConfig(level=logging.INFO)
+    logging.basicConfig(
+        level=logging.INFO,
+        format="%(asctime)s %(levelname)s %(name)s: %(message)s"
+    )
+
     for city in CITIES:
+        print(f"\n{'='*50}")
+        print(f"Processing {city}...")
+        print(f"{'='*50}")
+
         try:
+            # Build features
             df = build_features_spark(city)
+
+            print(f"  Rows:     {len(df):,}")
+            print(f"  Columns:  {len(df.columns)}")
+            print(f"  Date range: {df['ds'].min().date()} "
+                  f"→ {df['ds'].max().date()}")
+            print(f"  AQI mean: {df['y'].mean():.1f}")
+            print(f"  AQI max:  {df['y'].max():.1f}")
+
+            # Verify key columns exist
+            required = ["ds", "y", "aqi_lag_24h",
+                        "aqi_roll_mean_24h", "hour_sin", "is_rush_hour"]
+            missing  = [c for c in required if c not in df.columns]
+            if missing:
+                print(f"  WARNING — missing columns: {missing}")
+            else:
+                print(f"  All required columns present ✓")
+
+            # Show weather coverage
+            for col in ["temperature_2m", "wind_speed_10m",
+                        "relative_humidity_2m"]:
+                if col in df.columns:
+                    pct = df[col].notna().mean() * 100
+                    print(f"  {col}: {pct:.0f}% coverage")
+
+            # Save features
             save_features(city, df)
-            compute_baseline_stats(city, df)
+
+            # Compute baselines
+            stats = compute_baseline_stats(city, df)
+            print(f"  Baseline saved ✓")
+
         except Exception as e:
-            logger.error(f"Feature pipeline failed for {city}: {e}")
+            print(f"  ERROR: {e}")
+            logger.error(f"Pipeline failed for {city}", exc_info=True)
+
+    print(f"\n{'='*50}")
+    print("Feature pipeline complete.")
