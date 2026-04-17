@@ -110,6 +110,8 @@ def _reindex_to_hourly(df: pd.DataFrame,
     if "city" in df.columns:
         df["city"] = df["city"].ffill()
 
+    df[timestamp_col] = df[timestamp_col].dt.tz_localize(None)
+    
     return df
 
 def _build_with_spark(spark, city: str) -> pd.DataFrame:
@@ -241,6 +243,15 @@ def _build_with_spark(spark, city: str) -> pd.DataFrame:
 
     # Convert to pandas
     pdf = df.toPandas()
+
+    # Strip timezone from all timestamp columns
+    # Spark may return UTC-aware timestamps after toPandas()
+    for col in pdf.columns:
+        if pd.api.types.is_datetime64_any_dtype(pdf[col]):
+            if hasattr(pdf[col].dt, "tz") and pdf[col].dt.tz is not None:
+                pdf[col] = pdf[col].dt.tz_localize(None)
+
+
     pdf["ds"]   = pd.to_datetime(pdf["ds"])
     pdf["city"] = city
 
@@ -252,12 +263,19 @@ def _build_with_spark(spark, city: str) -> pd.DataFrame:
 
     # Recompute lags on complete grid
     for lag_h in LAG_HOURS:
-        pdf[f"aqi_lag_{lag_h}h"] = pdf["y"].shift(lag_h)
+        col      = f"aqi_lag_{lag_h}h"
+        pdf[col] = pdf["y"].shift(lag_h)
+        # Fill NaN at boundaries with bfill then mean
+        pdf[col] = pdf[col].bfill().fillna(pdf["y"].mean())
 
     for hours, name in [(6, "6h"), (24, "24h"), (168, "7d")]:
         pdf[f"aqi_roll_mean_{name}"] = pdf["y"].rolling(hours, min_periods=1).mean()
         pdf[f"aqi_roll_std_{name}"]  = pdf["y"].rolling(hours, min_periods=1).std()
         pdf[f"aqi_roll_max_{name}"]  = pdf["y"].rolling(hours, min_periods=1).max()
+
+        for suffix in ["mean", "std", "max"]:
+            col      = f"aqi_roll_{suffix}_{name}"
+            pdf[col] = pdf[col].fillna(pdf["y"].mean())
 
     # Fill weather NaN with city mean
     for col in WEATHER_COLS:
@@ -314,7 +332,7 @@ def _build_with_pandas(city: str) -> pd.DataFrame:
         )
         weather_df["timestamp"] = pd.to_datetime(
             weather_df["timestamp"], utc=True
-        ).dt.floor("h")
+        ).dt.floor("h").dt.tz_localize(None)
 
         # Rename Kaggle column names if present
         col_map = {
@@ -356,7 +374,12 @@ def _build_with_pandas(city: str) -> pd.DataFrame:
 
     # Lag features
     for lag_h in LAG_HOURS:
-        df[f"aqi_lag_{lag_h}h"] = df["aqi"].shift(lag_h)
+        col = f"aqi_lag_{lag_h}h"
+        df[col] = df["aqi"].shift(lag_h)
+        
+        # Fill NaN at boundaries with backward fill then mean
+        # NaN occurs at start of series and at data source gaps
+        df[col]  = df[col].bfill().fillna(df["aqi"].mean())
 
     # Rolling window statistics
     for hours, name in [(6, "6h"), (24, "24h"), (168, "7d")]:
@@ -369,6 +392,11 @@ def _build_with_pandas(city: str) -> pd.DataFrame:
         df[f"aqi_roll_max_{name}"] = (
             df["aqi"].rolling(hours, min_periods=1).max()
         )
+
+         # Fill any remaining NaN
+        for suffix in ["mean", "std", "max"]:
+            col     = f"aqi_roll_{suffix}_{name}"
+            df[col] = df[col].fillna(df["aqi"].mean())
 
     # Calendar features
     df["hour"]         = df["timestamp"].dt.hour
@@ -396,6 +424,8 @@ def _build_with_pandas(city: str) -> pd.DataFrame:
     for col in WEATHER_COLS:
         if col in df.columns and df[col].isna().any():
             df[col] = df[col].fillna(df[col].mean())
+
+    df["ds"] = df["ds"].dt.tz_localize(None)
 
     return (df.dropna(subset=["y"])
               .sort_values("ds")
