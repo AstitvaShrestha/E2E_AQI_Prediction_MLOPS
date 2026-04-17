@@ -192,9 +192,8 @@ if __name__ == "__main__":
         format="%(asctime)s %(levelname)s %(name)s: %(message)s"
     )
 
-    # Kaggle covers up to end of 2025
-    # Fetch from 2025-01-01 to today to fill the gap
-    date_from = datetime(2025, 1, 1, tzinfo=timezone.utc)
+
+    date_from = datetime(2026, 4, 15, tzinfo=timezone.utc)
     date_to   = datetime.now(timezone.utc)
 
     for city in CITIES:
