@@ -80,40 +80,77 @@ def build_features_spark(city: str) -> pd.DataFrame:
         logger.warning(f"Spark unavailable ({e}) — using pandas for {city}")
         return _build_with_pandas(city)
 
+def _reindex_to_hourly(df: pd.DataFrame,
+                       timestamp_col: str = "timestamp") -> pd.DataFrame:
+    """
+    Reindex DataFrame to complete hourly grid.
+    Ensures every hour exists between first and last date.
+    Rounds to day boundaries so 00:00 and 23:00 are always included.
+    Missing hours get NaN for AQI/PM2.5 — Prophet handles these.
+    City column is forward-filled (safe scalar).
+    """
+    df = df.set_index(timestamp_col)
+
+    # Round to day boundaries — ensures 00:00 and 23:00 included
+    start = df.index.min().floor("D")
+    end   = df.index.max().ceil("D") - pd.Timedelta(hours=1)
+
+    full_range = pd.date_range(
+        start=start,
+        end=end,
+        freq="h",
+        tz="UTC"
+    )
+
+    df = df.reindex(full_range)
+    df.index.name = timestamp_col
+    df = df.reset_index()
+
+    # Forward fill city — scalar string column, safe to fill
+    if "city" in df.columns:
+        df["city"] = df["city"].ffill()
+
+    return df
 
 def _build_with_spark(spark, city: str) -> pd.DataFrame:
-    """Spark implementation of feature engineering."""
-    from pyspark.sql import functions as F
-    from pyspark.sql.window import Window
-
+  
+  
     city_key = city.lower().replace(" ", "_")
     raw_path = str(DATA_DIR / "raw" / city_key / "date=*.parquet")
 
-    # Load AQI data
     try:
+        from pyspark.sql import functions as F
+        from pyspark.sql.window import Window
+
         aqi_df = spark.read.parquet(raw_path)
+        
     except Exception as e:
         raise FileNotFoundError(
-            f"No raw AQI data for {city} at {raw_path}. "
-            "Run seed_from_kaggle.py first."
+            f"No raw AQI data for {city} at {raw_path}."
         ) from e
 
     aqi_df = (aqi_df
               .select(
-                  F.col("timestamp").cast("timestamp").alias("timestamp"),
+                  # Floor to hour — fixes Kaggle(HH:00) vs OpenAQ(HH:30)
+                  F.date_trunc("hour",
+                      F.col("timestamp").cast("timestamp")
+                  ).alias("timestamp"),
                   F.col("aqi").cast("double").alias("aqi"),
                   F.col("pm25").cast("double").alias("pm25"),
               )
               .dropna(subset=["timestamp", "aqi"])
+              # Deduplicate after floor — same hour from multiple sources
+              .dropDuplicates(["timestamp"])
               .orderBy("timestamp"))
 
-    # Load weather data
+    # Weather
     weather_path = str(
         DATA_DIR / "raw" / city_key / "weather" / "date=*.parquet"
     )
     try:
         weather_df = spark.read.parquet(weather_path)
-        # Rename Kaggle column names to standard names if needed
+
+        # Rename Kaggle columns
         col_map = {
             "Temp_2m_C":          "temperature_2m",
             "Wind_Speed_10m_kmh": "wind_speed_10m",
@@ -125,28 +162,33 @@ def _build_with_spark(spark, city: str) -> pd.DataFrame:
             if old in weather_df.columns:
                 weather_df = weather_df.withColumnRenamed(old, new)
 
-        # Wind speed unit fix: Kaggle uses km/h, OpenMeteo uses m/s
+        # Wind speed unit fix
         if "wind_speed_10m" in weather_df.columns:
-            # Detect if values look like km/h (typically > 15 for India)
             sample_wind = weather_df.select(
                 F.avg("wind_speed_10m")
             ).collect()[0][0]
             if sample_wind and sample_wind > 15:
-                # Likely km/h — convert to m/s
                 weather_df = weather_df.withColumn(
                     "wind_speed_10m",
                     F.col("wind_speed_10m") / 3.6
                 )
 
         weather_select = ["timestamp"] + [
-            c for c in WEATHER_COLS
-            if c in weather_df.columns
+            c for c in WEATHER_COLS if c in weather_df.columns
         ]
+
         weather_df = (weather_df
-                      .select(*[F.col(c).cast(
-                          "timestamp" if c == "timestamp" else "double"
-                      ) for c in weather_select])
-                      .dropna(subset=["timestamp"]))
+                      .select(*[
+                          F.date_trunc("hour",
+                              F.col(c).cast("timestamp")
+                          ).alias(c)
+                          if c == "timestamp"
+                          else F.col(c).cast("double")
+                          for c in weather_select
+                      ])
+                      .dropna(subset=["timestamp"])
+                      # Deduplicate after floor
+                      .dropDuplicates(["timestamp"]))
 
         df = aqi_df.join(weather_df, on="timestamp", how="left")
 
@@ -156,7 +198,7 @@ def _build_with_spark(spark, city: str) -> pd.DataFrame:
         for col in WEATHER_COLS:
             df = df.withColumn(col, F.lit(None).cast("double"))
 
-    # Window spec for time-ordered operations
+    # Window spec
     w = Window.orderBy("timestamp")
 
     # Lag features
@@ -169,68 +211,61 @@ def _build_with_spark(spark, city: str) -> pd.DataFrame:
     # Rolling window statistics
     for hours, name in [(6, "6h"), (24, "24h"), (168, "7d")]:
         w_roll = Window.orderBy("timestamp").rowsBetween(-hours, -1)
-        df = df.withColumn(
-            f"aqi_roll_mean_{name}",
-            F.avg("aqi").over(w_roll)
-        )
-        df = df.withColumn(
-            f"aqi_roll_std_{name}",
-            F.stddev("aqi").over(w_roll)
-        )
-        df = df.withColumn(
-            f"aqi_roll_max_{name}",
-            F.max("aqi").over(w_roll)
-        )
+        df = (df
+              .withColumn(f"aqi_roll_mean_{name}", F.avg("aqi").over(w_roll))
+              .withColumn(f"aqi_roll_std_{name}",  F.stddev("aqi").over(w_roll))
+              .withColumn(f"aqi_roll_max_{name}",  F.max("aqi").over(w_roll)))
 
     # Calendar features
-    df = (df
-          .withColumn("hour",        F.hour("timestamp"))
-          .withColumn("dayofweek",   F.dayofweek("timestamp"))
-          .withColumn("month",       F.month("timestamp"))
-          .withColumn("is_weekend",
-                      (F.dayofweek("timestamp").isin([1, 7])).cast("integer"))
-          .withColumn("is_rush_hour",
-                      ((F.hour("timestamp").between(7, 10)) |
-                       (F.hour("timestamp").between(17, 20))
-                      ).cast("integer")))
-
-    # Cyclical encodings
-    # Sin/cos encoding prevents the model treating 23:00 and 00:00
-    # as far apart when they are actually adjacent
     pi = float(np.pi)
     df = (df
-          .withColumn("hour_sin",
-                      F.sin(2 * pi * F.col("hour") / 24))
-          .withColumn("hour_cos",
-                      F.cos(2 * pi * F.col("hour") / 24))
-          .withColumn("dow_sin",
-                      F.sin(2 * pi * F.col("dayofweek") / 7))
-          .withColumn("dow_cos",
-                      F.cos(2 * pi * F.col("dayofweek") / 7))
-          .withColumn("month_sin",
-                      F.sin(2 * pi * F.col("month") / 12))
-          .withColumn("month_cos",
-                      F.cos(2 * pi * F.col("month") / 12)))
+          .withColumn("hour",      F.hour("timestamp"))
+          .withColumn("dayofweek", F.dayofweek("timestamp"))
+          .withColumn("month",     F.month("timestamp"))
+          .withColumn("is_weekend",
+                      F.dayofweek("timestamp").isin([1,7]).cast("integer"))
+          .withColumn("is_rush_hour",
+                      (F.hour("timestamp").between(7,10) |
+                       F.hour("timestamp").between(17,20)).cast("integer"))
+          .withColumn("hour_sin",  F.sin(2*pi*F.col("hour")/24))
+          .withColumn("hour_cos",  F.cos(2*pi*F.col("hour")/24))
+          .withColumn("dow_sin",   F.sin(2*pi*F.col("dayofweek")/7))
+          .withColumn("dow_cos",   F.cos(2*pi*F.col("dayofweek")/7))
+          .withColumn("month_sin", F.sin(2*pi*F.col("month")/12))
+          .withColumn("month_cos", F.cos(2*pi*F.col("month")/12)))
 
-    # Rename to Prophet convention
-    # Prophet requires: ds (datetime), y (target)
-    df = (df
-          .withColumnRenamed("timestamp", "ds")
-          .withColumnRenamed("aqi",       "y"))
+    # Prophet convention
+    df = (df.withColumnRenamed("timestamp", "ds")
+            .withColumnRenamed("aqi", "y")
+            .dropna(subset=["y"]))
 
-    df = df.dropna(subset=["y"])
-
-    # Convert to pandas for MLflow/Prophet
+    # Convert to pandas
     pdf = df.toPandas()
-    pdf["ds"] = pd.to_datetime(pdf["ds"])
+    pdf["ds"]   = pd.to_datetime(pdf["ds"])
     pdf["city"] = city
 
-    # Fill remaining NaN weather with city mean (handles gaps)
+    # Reindex to complete hourly grid in pandas
+    # (Spark rowsBetween uses positions not clock-hours)
+    pdf = pdf.rename(columns={"ds": "timestamp", "y": "aqi"})
+    pdf = _reindex_to_hourly(pdf, timestamp_col="timestamp")
+    pdf = pdf.rename(columns={"timestamp": "ds", "aqi": "y"})
+
+    # Recompute lags on complete grid
+    for lag_h in LAG_HOURS:
+        pdf[f"aqi_lag_{lag_h}h"] = pdf["y"].shift(lag_h)
+
+    for hours, name in [(6, "6h"), (24, "24h"), (168, "7d")]:
+        pdf[f"aqi_roll_mean_{name}"] = pdf["y"].rolling(hours, min_periods=1).mean()
+        pdf[f"aqi_roll_std_{name}"]  = pdf["y"].rolling(hours, min_periods=1).std()
+        pdf[f"aqi_roll_max_{name}"]  = pdf["y"].rolling(hours, min_periods=1).max()
+
+    # Fill weather NaN with city mean
     for col in WEATHER_COLS:
         if col in pdf.columns:
             pdf[col] = pdf[col].fillna(pdf[col].mean())
 
     return pdf.sort_values("ds").reset_index(drop=True)
+
 
 # Pandas fallback
 def _build_with_pandas(city: str) -> pd.DataFrame:
@@ -253,12 +288,19 @@ def _build_with_pandas(city: str) -> pd.DataFrame:
         [pd.read_parquet(f) for f in aqi_files],
         ignore_index=True
     )
-    aqi_df["timestamp"] = pd.to_datetime(aqi_df["timestamp"], utc=True)
+    aqi_df["timestamp"] = pd.to_datetime(aqi_df["timestamp"], utc=True).dt.floor("h")
     aqi_df = (aqi_df
               .dropna(subset=["timestamp", "aqi"])
               .sort_values("timestamp")
               .drop_duplicates(subset=["timestamp"])
               .reset_index(drop=True))
+
+    aqi_df = _reindex_to_hourly(aqi_df, timestamp_col="timestamp")
+
+    logger.info(
+        f"{city}: {len(aqi_df)} rows after reindex "
+        f"({aqi_df['aqi'].isna().sum()} missing hours filled with NaN)"
+    )
 
     # Load weather data
     weather_dir   = raw_dir / "weather"
@@ -272,7 +314,7 @@ def _build_with_pandas(city: str) -> pd.DataFrame:
         )
         weather_df["timestamp"] = pd.to_datetime(
             weather_df["timestamp"], utc=True
-        )
+        ).dt.floor("h")
 
         # Rename Kaggle column names if present
         col_map = {
@@ -440,7 +482,7 @@ if __name__ == "__main__":
             print(f"  Rows:     {len(df):,}")
             print(f"  Columns:  {len(df.columns)}")
             print(f"  Date range: {df['ds'].min().date()} "
-                  f"→ {df['ds'].max().date()}")
+                  f"-> {df['ds'].max().date()}")
             print(f"  AQI mean: {df['y'].mean():.1f}")
             print(f"  AQI max:  {df['y'].max():.1f}")
 

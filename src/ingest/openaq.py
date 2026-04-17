@@ -1,6 +1,9 @@
 """
 OpenAQ v3 API ingestion — fetches hourly PM2.5 readings per city.
 Called by Airflow hourly DAG and backfill DAG.
+
+Key fix: sort_order=desc is ignored by OpenAQ /hours endpoint.
+Always use datetime_from/datetime_to filters to get specific date ranges.
 """
 
 import os
@@ -31,7 +34,13 @@ OPENAQ_BASE    = "https://api.openaq.org/v3"
 DATA_DIR       = Path(os.getenv("DATA_DIR", "data"))
 
 
+# ── Session with auto-retry ────────────────────────────────────────────────
+
 def make_session() -> requests.Session:
+    """
+    Requests session with exponential backoff retry.
+    Handles 429 rate limit and 5xx server errors automatically.
+    """
     session = requests.Session()
     retry   = Retry(
         total=5,
@@ -47,12 +56,14 @@ def make_session() -> requests.Session:
 SESSION = make_session()
 
 
+# ── Sensor ID lookup ───────────────────────────────────────────────────────
+
 def get_pm25_sensor_id(location_id: int, headers: dict) -> int | None:
     """
     Return the ACTIVE PM2.5 sensor at a location.
     Picks highest sensor ID = most recently registered = active sensor.
-    Legacy sensors have low IDs (< 100,000).
-    Active sensors have high IDs (> 12,000,000).
+    Legacy sensors: low IDs (< 100,000) — dead since 2017-2021.
+    Active sensors: high IDs (> 12,000,000) — reporting 2024+.
     """
     url = f"{OPENAQ_BASE}/locations/{location_id}/sensors"
     try:
@@ -82,17 +93,27 @@ def get_pm25_sensor_id(location_id: int, headers: dict) -> int | None:
         return None
 
 
-def get_latest_reading(sensor_id: int, headers: dict) -> dict | None:
+# ── Latest reading (with date filter fix) ─────────────────────────────────
+
+def get_latest_reading(sensor_id: int, headers: dict,
+                       days_back: int = 7) -> dict | None:
     """
-    Fetch the single most recent hourly reading for a sensor.
-    Uses sort_order=desc to get newest first.
-    Returns dict with value and timestamp, or None if no data.
+    Get most recent reading for a sensor.
+
+    IMPORTANT: sort_order=desc is IGNORED by OpenAQ /hours endpoint.
+    Must use datetime_from/datetime_to to get recent data.
+    Without date filters the API always returns oldest data first.
     """
+    date_to   = datetime.now(timezone.utc)
+    date_from = date_to - timedelta(days=days_back)
+
     url    = f"{OPENAQ_BASE}/sensors/{sensor_id}/hours"
     params = {
-        "limit":      1,
-        "order_by":   "datetime",
-        "sort_order": "desc",
+        "datetime_from": date_from.strftime("%Y-%m-%dT%H:%M:%SZ"),
+        "datetime_to":   date_to.strftime("%Y-%m-%dT%H:%M:%SZ"),
+        "limit":         1,
+        "order_by":      "datetime",
+        "sort_order":    "desc",
     }
     try:
         resp = SESSION.get(url, params=params, headers=headers, timeout=30)
@@ -111,7 +132,17 @@ def get_latest_reading(sensor_id: int, headers: dict) -> dict | None:
         return None
 
 
+# ── Raw result parser ──────────────────────────────────────────────────────
+
 def _parse_results(all_results: list) -> pd.DataFrame:
+    """
+    Parse raw API result list into clean DataFrame.
+    Quality filters:
+      - coverage >= 50%  (sensor active for at least half the hour)
+      - hasFlags == False (CPCB has not flagged the reading)
+      - value not None   (sensor was not offline)
+      - PM2.5 in 0-999   (physical bounds check)
+    """
     if not all_results:
         return pd.DataFrame()
 
@@ -131,7 +162,7 @@ def _parse_results(all_results: list) -> pd.DataFrame:
                 "timestamp":    pd.to_datetime(
                                     r["period"]["datetimeTo"]["utc"],
                                     utc=True
-                                ),
+                                ).floor("h"),
                 "pm25":         float(value),
                 "pm25_min":     r.get("summary", {}).get("min"),
                 "pm25_max":     r.get("summary", {}).get("max"),
@@ -154,6 +185,8 @@ def _parse_results(all_results: list) -> pd.DataFrame:
     return df
 
 
+# ── Paginated hourly fetch ─────────────────────────────────────────────────
+
 def fetch_hourly_readings(
     sensor_id: int,
     date_from: datetime,
@@ -161,6 +194,11 @@ def fetch_hourly_readings(
     headers:   dict,
     max_pages: int = 25,
 ) -> pd.DataFrame:
+    """
+    Fetch all hourly readings for one sensor in a date range.
+    Uses datetime_from/datetime_to — the only reliable way to get
+    specific date ranges from OpenAQ (sort_order alone does not work).
+    """
     all_results = []
     page        = 1
 
@@ -173,11 +211,15 @@ def fetch_hourly_readings(
             "page":          page,
         }
         try:
-            resp = SESSION.get(url, params=params, headers=headers, timeout=30)
+            resp = SESSION.get(
+                url, params=params, headers=headers, timeout=30
+            )
 
             if resp.status_code == 429:
                 wait = int(resp.headers.get("Retry-After", 60))
-                logger.warning(f"Rate limited on page {page} — waiting {wait}s")
+                logger.warning(
+                    f"Rate limited on page {page} — waiting {wait}s"
+                )
                 time.sleep(wait)
                 continue
 
@@ -188,21 +230,35 @@ def fetch_hourly_readings(
                 break
 
             all_results.extend(results)
-            time.sleep(1.1)
+            logger.debug(
+                f"Sensor {sensor_id} page {page}: {len(results)} records"
+            )
+
+            time.sleep(1.1)   # stay under 60 req/min
 
             if len(results) < 1000:
-                break
+                break         # last page
 
             page += 1
 
         except requests.RequestException as e:
-            logger.error(f"Request failed for sensor {sensor_id} page {page}: {e}")
+            logger.error(
+                f"Request failed sensor {sensor_id} page {page}: {e}"
+            )
             break
 
     return _parse_results(all_results)
 
 
+# ── City-level ingestion ───────────────────────────────────────────────────
+
 def ingest_city(city: str, date_from: datetime, date_to: datetime) -> int:
+    """
+    Fetch PM2.5 for all monitoring stations in a city.
+    Averages readings across stations for each hour.
+    Saves one Parquet file per day under data/raw/{city}/
+    Returns total records saved.
+    """
     cfg      = CITIES[city]
     headers  = {"X-API-Key": OPENAQ_API_KEY} if OPENAQ_API_KEY else {}
     city_key = city.lower().replace(" ", "_")
@@ -225,7 +281,10 @@ def ingest_city(city: str, date_from: datetime, date_to: datetime) -> int:
             logger.warning(f"{city} loc {loc_id}: no data returned")
 
     if not all_dfs:
-        logger.error(f"No data for {city} ({date_from.date()} – {date_to.date()})")
+        logger.error(
+            f"No data for {city} "
+            f"({date_from.date()} – {date_to.date()})"
+        )
         return 0
 
     combined = (
@@ -248,7 +307,7 @@ def ingest_city(city: str, date_from: datetime, date_to: datetime) -> int:
         out_path = city_dir / f"date={date}.parquet"
         if out_path.exists():
             existing = pd.read_parquet(out_path)
-            group = (
+            group    = (
                 pd.concat([existing, group])
                 .drop_duplicates(subset=["timestamp"])
                 .sort_values("timestamp")
@@ -261,11 +320,66 @@ def ingest_city(city: str, date_from: datetime, date_to: datetime) -> int:
     return records_saved
 
 
+# ── Recent window for drift detection ─────────────────────────────────────
+
+def get_latest_available_window(city: str, days: int = 7) -> pd.DataFrame:
+    """
+    Fetch the most recent N days of AQI from OpenAQ.
+    Used by drift.py for the KS-test recent distribution window.
+
+    Uses explicit date_from/date_to — the only reliable way to get
+    recent data from OpenAQ (sort_order is ignored by their API).
+    """
+    date_to   = datetime.now(timezone.utc)
+    date_from = date_to - timedelta(days=days)
+
+    cfg      = CITIES[city]
+    headers  = {"X-API-Key": OPENAQ_API_KEY} if OPENAQ_API_KEY else {}
+
+    all_dfs = []
+    for loc_id in cfg["openaq_location_ids"]:
+        sensor_id = get_pm25_sensor_id(loc_id, headers)
+        if sensor_id is None:
+            continue
+
+        df = fetch_hourly_readings(sensor_id, date_from, date_to, headers)
+        if not df.empty:
+            df["city"]        = city
+            df["location_id"] = loc_id
+            all_dfs.append(df)
+        time.sleep(0.5)
+
+    if not all_dfs:
+        logger.warning(f"No OpenAQ data for {city} in last {days} days")
+        return pd.DataFrame()
+
+    combined = (
+        pd.concat(all_dfs)
+        .groupby("timestamp")
+        .agg(
+            pm25 = ("pm25", "mean"),
+            aqi  = ("aqi",  "mean"),
+            city = ("city", "first"),
+        )
+        .reset_index()
+        .sort_values("timestamp")
+        .reset_index(drop=True)
+    )
+    combined["aqi"] = combined["aqi"].round().astype(int)
+
+    logger.info(
+        f"OpenAQ window {city}: {len(combined)} records | "
+        f"{combined['timestamp'].min().date()} → "
+        f"{combined['timestamp'].max().date()}"
+    )
+    return combined
+
+
+# ── Live data check (no save) ──────────────────────────────────────────────
+
 def check_live_data(city: str) -> None:
     """
-    Test-only function — checks latest available reading for each
-    location in a city WITHOUT saving anything to disk.
-    Shows sensor ID, latest timestamp, PM2.5 value, and data age.
+    Test function — shows latest reading per location, no disk writes.
     """
     cfg     = CITIES[city]
     headers = {"X-API-Key": OPENAQ_API_KEY} if OPENAQ_API_KEY else {}
@@ -286,48 +400,68 @@ def check_live_data(city: str) -> None:
             print(f"  Loc {loc_id}: no PM2.5 sensor")
             continue
 
-        reading = get_latest_reading(sensor_id, headers)
+        # Use date filter — sort_order alone does not work
+        reading = get_latest_reading(sensor_id, headers, days_back=7)
         if not reading:
-            print(f"  Loc {loc_id}: sensor {sensor_id} — NO DATA")
+            print(f"  Loc {loc_id} sensor {sensor_id}: no data in last 7d")
             continue
 
         ts_str   = reading["timestamp"]
         value    = reading["value"]
         coverage = reading["coverage"]
-
-        # Calculate how old the data is
         ts       = datetime.fromisoformat(ts_str.replace("Z", "+00:00"))
         age_hrs  = (now - ts).total_seconds() / 3600
 
         if value is not None:
             aqi = pm25_to_aqi(float(value))
-            print(f"  Loc {loc_id}: sensor {sensor_id}")
+            print(f"  Loc {loc_id} sensor {sensor_id}:")
             print(f"    PM2.5:    {value:.1f} µg/m³")
             print(f"    AQI:      {aqi}  (India CPCB)")
-            print(f"    Latest:   {ts_str}")
-            print(f"    Data age: {age_hrs:.1f} hours ago")
+            print(f"    Latest:   {ts_str[:16]}")
+            print(f"    Data age: {age_hrs:.0f}h ago")
             print(f"    Coverage: {coverage:.0f}%")
             working += 1
         else:
-            print(f"  Loc {loc_id}: sensor {sensor_id} — null value")
+            print(f"  Loc {loc_id}: null value")
 
         time.sleep(0.5)
 
-    print(f"\n  Summary: {working}/{len(cfg['openaq_location_ids'])} "
-          f"locations have data")
+    print(f"\n  {working}/{len(cfg['openaq_location_ids'])} "
+          f"locations have data in last 7 days")
 
+
+# ── Entry point ────────────────────────────────────────────────────────────
 
 if __name__ == "__main__":
     logging.basicConfig(
-        level=logging.WARNING,   # suppress INFO noise during test
-        format="%(asctime)s %(levelname)s: %(message)s"
+        level=logging.INFO,
+        format="%(asctime)s %(levelname)s %(name)s: %(message)s"
     )
 
-    print("OpenAQ live data check — no data saved to disk\n")
-    print(f"Checking at: {datetime.now(timezone.utc).strftime('%Y-%m-%d %H:%M UTC')}")
+    date_to   = datetime.now(timezone.utc)
+    date_from = date_to - timedelta(days=7)
 
+    print(f"Fetching OpenAQ data: {date_from.date()} → {date_to.date()}\n")
+
+    total = 0
     for city in CITIES:
-        check_live_data(city)
+        count  = ingest_city(city, date_from, date_to)
+        total += count
+        print(f"  {city}: {count} records saved")
 
-    print(f"\n{'='*55}")
-    print("Done. Run ingest_city() to save data.")
+    print(f"\nTotal: {total} records")
+    print("\nVerifying saved files:")
+
+    import glob
+    for city in CITIES:
+        key   = city.lower().replace(" ", "_")
+        files = sorted(glob.glob(f"data/raw/{key}/date=*.parquet"),
+                       reverse=True)[:3]
+        if files:
+            for f in files:
+                df = pd.read_parquet(f)
+                print(f"  {Path(f).name}: {len(df)} rows | "
+                      f"latest={df['timestamp'].max()}")
+        else:
+            print(f"  {city}: no files found")
+        print()

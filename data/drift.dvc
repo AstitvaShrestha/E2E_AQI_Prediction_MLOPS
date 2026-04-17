@@ -1,0 +1,6 @@
+outs:
+- md5: 7415f88e66a2505c31b475b6c1052c4a.dir
+  size: 11505
+  nfiles: 5
+  hash: md5
+  path: drift

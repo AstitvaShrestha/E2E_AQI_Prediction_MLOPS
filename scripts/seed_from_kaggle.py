@@ -120,7 +120,7 @@ def extract_aqi(df: pd.DataFrame, city: str) -> pd.DataFrame:
     # Parse timestamp
     city_df["timestamp"] = pd.to_datetime(
         city_df["Datetime"], errors="coerce", utc=True
-    )
+    ).dt.floor("h")
     city_df = city_df.dropna(subset=["timestamp"])
 
     # Parse PM2.5
@@ -171,7 +171,8 @@ def extract_weather(df: pd.DataFrame, city: str) -> pd.DataFrame:
     # Parse timestamp
     city_df["timestamp"] = pd.to_datetime(
         city_df["Datetime"], errors="coerce", utc=True
-    )
+    ).dt.floor("h")
+    
     city_df = city_df.dropna(subset=["timestamp"])
 
     # Build weather output DataFrame

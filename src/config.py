@@ -9,7 +9,7 @@ CITIES = {
         "lon": 77.2090,
         "country": "India",
         "timezone": "Asia/Kolkata",
-        "openaq_location_ids": [5570, 5541, 5610, 235, 11603, 5616, 17, 50, 5586, 5588, 5404, 5598],   # CPCB stations
+        "openaq_location_ids": [6358, 11603, 8118, 5613, 6929, 5610, 8917, 6359, 6934, 8365, 5627],   # CPCB stations
         "aqi_profile": "severe_winter",               
     },
     "Mumbai": {
@@ -17,7 +17,7 @@ CITIES = {
         "lon": 72.8777,
         "country": "India",
         "timezone": "Asia/Kolkata",
-        "openaq_location_ids": [2598, 5593, 6927, 6943, 6945, 6948, 6956, 6959, 6965, 6967, 6987, 7850, 8039, 11602, 11604, 11606, 11611, 11612, 12024, 12039],
+        "openaq_location_ids": [3409482, 3409486, 6987, 12024, 6948, 6956, 6945, 3409514, 6967, 3409511, 3409329, 3409483, 3409513, 6959, 3409323],
         "aqi_profile": "coastal_moderate",
     },
     "Kolkata": {
@@ -25,7 +25,7 @@ CITIES = {
         "lon": 88.3639,
         "country": "India",
         "timezone": "Asia/Kolkata",
-        "openaq_location_ids":  [716, 910, 2460, 5614, 6310, 6946, 6950, 6981, 8172, 10633, 10844, 10851, 10904, 10918, 1236037, 3409320, 3409509, 3409524, 3409530],
+        "openaq_location_ids":  [10633, 6981, 10918, 3409524, 10904, 5614, 6946, 3409320, 6950],
         "aqi_profile": "industrial_high",
     },
     "Chennai": {
@@ -33,7 +33,7 @@ CITIES = {
         "lon": 80.2707,
         "country": "India",
         "timezone": "Asia/Kolkata",
-        "openaq_location_ids": [378, 2461, 2549, 2586, 5655, 8558, 10780, 11578, 11579, 11581, 12046],
+        "openaq_location_ids": [11578, 11579, 2586, 10780, 11581, 5655, 12046],
         "aqi_profile": "coastal_low",
     },
     "Bengaluru": {
@@ -41,7 +41,7 @@ CITIES = {
         "lon": 77.5946,
         "country": "India",
         "timezone": "Asia/Kolkata",
-        "openaq_location_ids": [412, 594, 2592, 5547, 5548, 5607, 6973, 6974, 6975, 6983, 6984, 229473, 2498781, 3409312, 3409385, 3409388],
+        "openaq_location_ids": [6974, 3409385, 3409393, 5607, 6984, 6983, 6973, 5548, 6975, 3409388],
         "aqi_profile": "traffic_moderate",
     },
 }
