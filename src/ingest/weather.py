@@ -268,11 +268,19 @@ if __name__ == "__main__":
         format="%(asctime)s %(levelname)s %(name)s: %(message)s"
     )
 
-    print("Fetching last 7 days of weather for all cities...\n")
+    date_from = datetime(2025, 11, 27, tzinfo=timezone.utc)
+    date_to   = datetime(2026, 4,  10, tzinfo=timezone.utc)
+
+    print(f"Fetching gap weather: {date_from.date()} → {date_to.date()}\n")
+
+
+    # print("Fetching last 7 days of weather for all cities...\n")
 
     for city in CITIES:
-        # Use past_days parameter — correct method for recent data
-        df = fetch_weather_last_n_days(city, days=7)
+        
+        # df = fetch_weather_last_n_days(city, days=7)
+        df = fetch_weather(city, date_from, date_to)
+        
         if not df.empty:
             save_weather(city, df)
             print(f"{city}: {len(df)} records | "

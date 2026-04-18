@@ -44,7 +44,7 @@ WEATHER_COLS = [
 # Bonus India-specific columns from Kaggle dataset
 # Present only in Kaggle-seeded data — handled gracefully if missing
 BONUS_COLS = [
-    "temp_inversion",
+    # "temp_inversion",
     "crop_burning",
     "festival_period",
 ]
@@ -52,6 +52,31 @@ BONUS_COLS = [
 # Lag hours — how far back Prophet looks for autocorrelation signal
 LAG_HOURS = [1, 2, 3, 24, 48, 168]   # 168 = 1 week
 
+
+def add_bonus_features(df: pd.DataFrame,
+                       timestamp_col: str = "ds") -> pd.DataFrame:
+    """
+    Derive India-specific pollution features from calendar.
+    These repeat consistently every year in data:
+
+    crop_burning:    1 for Oct-Nov (Punjab/Haryana crop burning season)
+                     0 otherwise
+    festival_period: 0.55 for Oct, 0.50 for Nov (Diwali + festival season)
+                     0 otherwise
+
+    """
+    month = df[timestamp_col].dt.month
+
+    df["crop_burning"] = (
+        month.isin([10, 11])
+    ).astype(float)
+
+    df["festival_period"] = month.map({
+        10: 0.55,
+        11: 0.50,
+    }).fillna(0.0)
+
+    return df
 
 
 def build_features_spark(city: str) -> pd.DataFrame:
@@ -261,6 +286,9 @@ def _build_with_spark(spark, city: str) -> pd.DataFrame:
     pdf = _reindex_to_hourly(pdf, timestamp_col="timestamp")
     pdf = pdf.rename(columns={"timestamp": "ds", "aqi": "y"})
 
+    # Add calendar-derived bonus features
+    pdf = add_bonus_features(pdf, timestamp_col="ds")
+    
     # Recompute lags on complete grid
     for lag_h in LAG_HOURS:
         col      = f"aqi_lag_{lag_h}h"
@@ -371,6 +399,10 @@ def _build_with_pandas(city: str) -> pd.DataFrame:
             df[col] = np.nan
 
     df = df.sort_values("timestamp").reset_index(drop=True)
+
+    # Add calendar-derived bonus features
+    # Overrides Kaggle values where present — consistent across all data sources
+    df = add_bonus_features(df, timestamp_col="timestamp")
 
     # Lag features
     for lag_h in LAG_HOURS:

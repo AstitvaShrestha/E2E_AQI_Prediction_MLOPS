@@ -438,8 +438,10 @@ if __name__ == "__main__":
         format="%(asctime)s %(levelname)s %(name)s: %(message)s"
     )
 
-    date_to   = datetime.now(timezone.utc)
-    date_from = date_to - timedelta(days=7)
+    # date_to   = datetime.now(timezone.utc)
+    # date_from = date_to - timedelta(days=7)
+    date_from = datetime(2025, 11, 27, tzinfo=timezone.utc)
+    date_to   = datetime(2026, 4,  10, tzinfo=timezone.utc)
 
     print(f"Fetching OpenAQ data: {date_from.date()} → {date_to.date()}\n")
 
