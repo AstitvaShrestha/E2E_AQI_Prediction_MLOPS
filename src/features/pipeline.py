@@ -44,7 +44,7 @@ WEATHER_COLS = [
 # Bonus India-specific columns from Kaggle dataset
 # Present only in Kaggle-seeded data — handled gracefully if missing
 BONUS_COLS = [
-    # "temp_inversion",
+    "temp_inversion",
     "crop_burning",
     "festival_period",
 ]
