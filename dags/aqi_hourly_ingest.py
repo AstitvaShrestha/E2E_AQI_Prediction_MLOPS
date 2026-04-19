@@ -1,6 +1,4 @@
 """
-dags/aqi_hourly_ingest.py
-
 Airflow DAG — runs every hour to:
   1. Fetch latest AQI from OpenAQ for all 5 cities
   2. Fetch latest weather from OpenMeteo for all 5 cities
@@ -29,7 +27,7 @@ logger = logging.getLogger(__name__)
 
 #---Default args-------
 DEFAULT_ARGS = {
-    "owner":            "aqi_prediction",
+    "owner": "aqi_prediction",
     "depends_on_past":  False,
     "email_on_failure": False,
     "email_on_retry":   False,
@@ -345,15 +343,16 @@ def log_ingestion_summary(**context):
 
 # ---DAG Definition------
 
+
 with DAG(
     dag_id = "aqi_hourly_ingest",
     default_args = DEFAULT_ARGS,
     description = "Hourly AQI + weather ingestion and drift detection",
     schedule = "5 * * * *",  # every hour at :05
-    start_date = days_ago(1),
+    start_date = pendulum.now().subtract(days=1),  # start yesterday to allow immediate run
     catchup = False, # don't backfill missed runs
     max_active_runs = 1, # prevent overlapping runs
-    tags = ["aircast", "ingestion", "production"],
+    tags = ["aqi_prediction", "ingestion", "production"],
 ) as dag:
 
     # Tasks
