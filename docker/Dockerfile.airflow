@@ -1,0 +1,5 @@
+# docker/Dockerfile.airflow
+FROM apache/airflow:3.1.8
+
+COPY docker/requirements.airflow.txt .
+RUN pip install --no-cache-dir -r requirements.airflow.txt

@@ -1,0 +1,191 @@
+
+x-airflow-common: &airflow-common
+  build:
+    context:    .
+    dockerfile: docker/Dockerfile.airflow
+  environment:
+    AIRFLOW__CORE__EXECUTOR: LocalExecutor
+    AIRFLOW__DATABASE__SQL_ALCHEMY_CONN: postgresql+psycopg2://airflow:airflow@postgres/airflow
+    AIRFLOW__CORE__FERNET_KEY: ""
+    AIRFLOW__CORE__DAGS_ARE_PAUSED_AT_CREATION: "false"
+    AIRFLOW__CORE__LOAD_EXAMPLES: "false"
+    AIRFLOW__API__AUTH_BACKENDS: airflow.api.auth.backend.basic_auth
+    AIRFLOW__WEBSERVER__SECRET_KEY: "aqi_prediction_secret_key_2026"
+    MLFLOW_TRACKING_URI: http://mlflow:5000
+    OPENAQ_API_KEY:       ${OPENAQ_API_KEY}
+    AQICN_TOKEN:          ${AQICN_TOKEN}
+    DATA_DIR:             /opt/airflow/data
+    PYTHONPATH:           /opt/airflow
+    FASTAPI_URL:          http://fastapi:8000
+  volumes:
+    - ./dags:/opt/airflow/dags
+    - ./src:/opt/airflow/src
+    - ./data:/opt/airflow/data
+    - ./models:/opt/airflow/models
+    - ./mlflow:/opt/airflow/mlflow
+    - airflow-logs:/opt/airflow/logs
+  depends_on:
+    postgres:
+      condition: service_healthy
+
+services:
+
+  # ── PostgreSQL ─────────────────────────────────────────────────────────────
+  postgres:
+    image: postgres:16
+    container_name: aqi-prediction-postgres
+    environment:
+      POSTGRES_USER:     airflow
+      POSTGRES_PASSWORD: airflow
+      POSTGRES_DB:       airflow
+    volumes:
+      - postgres-db:/var/lib/postgresql/data
+    healthcheck:
+      test:     ["CMD", "pg_isready", "-U", "airflow"]
+      interval: 10s
+      retries:  5
+    restart: unless-stopped
+
+  # ── Airflow init ───────────────────────────────────────────────────────────
+  airflow-init:
+    <<: *airflow-common
+    container_name: aqi-prediction-airflow-init
+    entrypoint: /bin/bash
+    command:
+      - -c
+      - |
+        airflow db migrate &&
+        airflow users create \
+          --username admin \
+          --password admin \
+          --firstname Admin \
+          --lastname User \
+          --role Admin \
+          --email admin@aqi-prediction.local || true
+    restart: on-failure
+
+  # ── Airflow webserver ──────────────────────────────────────────────────────
+  airflow-webserver:
+    <<: *airflow-common
+    container_name: aqi-prediction-airflow-webserver
+    command: webserver
+    ports:
+      - "8080:8080"
+    healthcheck:
+      test:        ["CMD", "curl", "--fail", "http://localhost:8080/health"]
+      interval:    30s
+      retries:     5
+      start_period: 60s
+    restart: unless-stopped
+
+  # ── Airflow scheduler ──────────────────────────────────────────────────────
+  airflow-scheduler:
+    <<: *airflow-common
+    container_name: aqi-prediction-airflow-scheduler
+    command: scheduler
+    restart: unless-stopped
+
+  # ── MLflow ─────────────────────────────────────────────────────────────────
+  mlflow:
+    build:
+      context:    .
+      dockerfile: docker/Dockerfile.mlflow
+    container_name: aqi-prediction-mlflow
+    ports:
+      - "5000:5000"
+    volumes:
+      - ./mlflow:/mlflow
+    healthcheck:
+      test:        ["CMD", "curl", "-f", "http://localhost:5000/health"]
+      interval:    30s
+      retries:     5
+      start_period: 60s
+    restart: unless-stopped
+
+  # ── FastAPI ────────────────────────────────────────────────────────────────
+  fastapi:
+    build:
+      context:    .
+      dockerfile: docker/Dockerfile.api
+    container_name: aqi-prediction-fastapi
+    ports:
+      - "8000:8000"
+    environment:
+      MLFLOW_TRACKING_URI: http://mlflow:5000
+      DATA_DIR:            /app/data
+      MODELS_DIR:          /app/models
+      AQICN_TOKEN:         ${AQICN_TOKEN}
+      OPENAQ_API_KEY:      ${OPENAQ_API_KEY}
+      PYTHONPATH:          /app
+    volumes:
+      - ./data:/app/data
+      - ./models:/app/models
+      - ./mlflow:/app/mlflow
+      - ./src:/app/src
+    depends_on:
+      mlflow:
+        condition: service_healthy
+    healthcheck:
+      test:        ["CMD", "curl", "-f", "http://localhost:8000/health"]
+      interval:    30s
+      retries:     5
+      start_period: 120s
+    restart: unless-stopped
+
+  # ── Streamlit frontend ─────────────────────────────────────────────────────
+  frontend:
+    build:
+      context:    .
+      dockerfile: docker/Dockerfile.frontend
+    container_name: aqi-prediction-frontend
+    ports:
+      - "8501:8501"
+    environment:
+      FASTAPI_URL: http://fastapi:8000
+    depends_on:
+      fastapi:
+        condition: service_healthy
+    healthcheck:
+      test:     ["CMD", "curl", "-f", "http://localhost:8501/healthz"]
+      interval: 30s
+      retries:  5
+    restart: unless-stopped
+
+  # ── Prometheus ─────────────────────────────────────────────────────────────
+  prometheus:
+    image: prom/prometheus:latest
+    container_name: aqi-prediction-prometheus
+    ports:
+      - "9090:9090"
+    volumes:
+      - ./monitoring/prometheus.yml:/etc/prometheus/prometheus.yml
+      - ./monitoring/alerts.yml:/etc/prometheus/alerts.yml
+      - prometheus-data:/prometheus
+    command:
+      - "--config.file=/etc/prometheus/prometheus.yml"
+      - "--storage.tsdb.path=/prometheus"
+      - "--web.enable-lifecycle"
+    restart: unless-stopped
+
+  # ── Grafana ────────────────────────────────────────────────────────────────
+  grafana:
+    image: grafana/grafana:latest
+    container_name: aqi-prediction-grafana
+    ports:
+      - "3001:3000"
+    environment:
+      GF_SECURITY_ADMIN_PASSWORD: admin
+      GF_USERS_ALLOW_SIGN_UP:     "false"
+    volumes:
+      - grafana-data:/var/lib/grafana
+      - ./monitoring/grafana/provisioning:/etc/grafana/provisioning
+      - ./monitoring/grafana/dashboards:/var/lib/grafana/dashboards
+    depends_on:
+      - prometheus
+    restart: unless-stopped
+
+volumes:
+  postgres-db:
+  airflow-logs:
+  prometheus-data:
+  grafana-data:

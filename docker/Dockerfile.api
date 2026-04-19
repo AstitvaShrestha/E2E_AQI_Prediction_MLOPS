@@ -1,0 +1,38 @@
+FROM python:3.11-slim
+
+WORKDIR /app
+
+# System deps for Prophet Stan compiler
+RUN apt-get update && apt-get install -y \
+    gcc g++ curl build-essential \
+    && rm -rf /var/lib/apt/lists/*
+
+
+# Install Python deps
+COPY docker/requirements.api.txt .
+RUN pip install --no-cache-dir -r requirements.api.txt
+
+
+# Pre-compile Prophet Stan model at build time
+# Prevents 2-3 min delay on first forecast request
+RUN python -c "
+from prophet import Prophet
+import pandas as pd, numpy as np
+df = pd.DataFrame({
+    'ds': pd.date_range('2024-01-01', periods=200, freq='h'),
+    'y':  np.random.randint(50, 200, 200).astype(float)
+})
+Prophet().fit(df)
+print('Prophet Stan compiled OK')
+"
+
+# # Copy source code
+# COPY src/ ./src/
+# COPY data/ ./data/
+
+EXPOSE 8000
+
+CMD ["uvicorn", "src.api.main:app", \
+     "--host", "0.0.0.0", \
+     "--port", "8000", \
+     "--workers", "1"]
