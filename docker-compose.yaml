@@ -91,10 +91,12 @@ services:
       context:    .
       dockerfile: docker/Dockerfile.mlflow
     container_name: aqi-prediction-mlflow
+    environment:
+      MLFLOW_ALLOWED_HOSTS: "*"
     ports:
       - "5000:5000"
     volumes:
-      - ./mlflow:/mlflow
+      - ./mlflow:/app/mlflow
     healthcheck:
       test:        ["CMD", "curl", "-f", "http://localhost:5000/health"]
       interval:    30s

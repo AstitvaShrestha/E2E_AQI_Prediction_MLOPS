@@ -15,16 +15,7 @@ RUN pip install --no-cache-dir -r requirements.api.txt
 
 # Pre-compile Prophet Stan model at build time
 # Prevents 2-3 min delay on first forecast request
-RUN python -c "
-from prophet import Prophet
-import pandas as pd, numpy as np
-df = pd.DataFrame({
-    'ds': pd.date_range('2024-01-01', periods=200, freq='h'),
-    'y':  np.random.randint(50, 200, 200).astype(float)
-})
-Prophet().fit(df)
-print('Prophet Stan compiled OK')
-"
+RUN python -c "from prophet import Prophet; import pandas as pd, numpy as np; df = pd.DataFrame({'ds': pd.date_range('2024-01-01', periods=200, freq='h'), 'y': np.random.randint(50, 200, 200).astype(float)}); Prophet().fit(df); print('Prophet Stan compiled OK')"
 
 # # Copy source code
 # COPY src/ ./src/

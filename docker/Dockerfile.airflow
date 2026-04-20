@@ -1,5 +1,15 @@
-# docker/Dockerfile.airflow
 FROM apache/airflow:3.1.8
 
+# Switch to root to install system deps if needed
+USER root
+RUN apt-get update && apt-get install -y \
+    gcc g++ build-essential curl \
+    && rm -rf /var/lib/apt/lists/*
+
+# Switch back to airflow user — required by Airflow image
+USER airflow
+
+# Install Python dependencies needed by DAGs
+# prophet needs gcc which is why we install it above
 COPY docker/requirements.airflow.txt .
 RUN pip install --no-cache-dir -r requirements.airflow.txt

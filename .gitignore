@@ -2,4 +2,4 @@
 __pycache__/
 data/kaggle_seed/
 models/
-mlflow/
+data/drift/
