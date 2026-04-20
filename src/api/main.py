@@ -31,6 +31,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from prometheus_fastapi_instrumentator import Instrumentator
 from dotenv import load_dotenv
 from contextlib import asynccontextmanager
+from prometheus_client import Gauge
 
 load_dotenv()
 
@@ -84,6 +85,11 @@ app.add_middleware(
 # Prometheus metrics
 Instrumentator().instrument(app).expose(app)
 
+MODELS_LOADED = Gauge(
+    "aqi_models_loaded_total",
+    "Number of champion models currently loaded"
+)
+
 #----Model Registry------
 champion_models = {}
 
@@ -112,6 +118,8 @@ def load_champion_models():
     logger.info(
         f"Loaded {len(champion_models)}/5 champion models"
     )
+
+    MODELS_LOADED.set(len(champion_models))
 
 # @app.on_event("startup")
 # async def startup_event():

@@ -10,7 +10,7 @@ x-airflow-common: &airflow-common
     AIRFLOW__CORE__DAGS_ARE_PAUSED_AT_CREATION: "false"
     AIRFLOW__CORE__LOAD_EXAMPLES: "false"
     AIRFLOW__API__AUTH_BACKENDS: airflow.api.auth.backend.basic_auth
-    AIRFLOW__WEBSERVER__SECRET_KEY: "aqi_prediction_secret_key_2026"
+    AIRFLOW__API__SECRET_KEY: "aqi_prediction_secret_key_2026"
     MLFLOW_TRACKING_URI: http://mlflow:5000
     OPENAQ_API_KEY:       ${OPENAQ_API_KEY}
     AQICN_TOKEN:          ${AQICN_TOKEN}
@@ -54,25 +54,18 @@ services:
     command:
       - -c
       - |
-        airflow db migrate &&
-        airflow users create \
-          --username admin \
-          --password admin \
-          --firstname Admin \
-          --lastname User \
-          --role Admin \
-          --email admin@aqi-prediction.local || true
+        airflow db migrate
     restart: on-failure
 
   # ── Airflow webserver ──────────────────────────────────────────────────────
   airflow-webserver:
     <<: *airflow-common
     container_name: aqi-prediction-airflow-webserver
-    command: webserver
+    command: api-server
     ports:
       - "8080:8080"
     healthcheck:
-      test:        ["CMD", "curl", "--fail", "http://localhost:8080/health"]
+      test:        ["CMD", "curl", "--fail", "http://localhost:8080/api/v2/monitor/health"]
       interval:    30s
       retries:     5
       start_period: 60s

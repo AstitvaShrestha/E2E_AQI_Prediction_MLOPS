@@ -1,6 +1,9 @@
 groups:
-  - name: aqi_prediction_alerts
+  - name: aircast_alerts
+    interval: 30s
     rules:
+
+      # FastAPI down
       - alert: FastAPIDown
         expr: up{job="fastapi"} == 0
         for: 1m
@@ -8,11 +11,39 @@ groups:
           severity: critical
         annotations:
           summary: "FastAPI is down"
+          description: "FastAPI has been unreachable for more than 1 minute"
 
+      # High error rate (5xx)
       - alert: HighErrorRate
-        expr: rate(http_requests_total{status=~"5.."}[5m]) > 0.05
+        expr: >
+          rate(http_requests_total{job="fastapi",status=~"5.."}[5m]) /
+          rate(http_requests_total{job="fastapi"}[5m]) > 0.05
         for: 5m
         labels:
           severity: warning
         annotations:
           summary: "High error rate on FastAPI"
+          description: "More than 5% of requests returning 5xx errors"
+
+      # Slow response time
+      - alert: SlowResponseTime
+        expr: >
+          histogram_quantile(0.95,
+            rate(http_request_duration_seconds_bucket{job="fastapi"}[5m])
+          ) > 10
+        for: 5m
+        labels:
+          severity: warning
+        annotations:
+          summary: "Slow API response time"
+          description: "95th percentile response time > 10 seconds"
+
+      # High request rate
+      - alert: HighRequestRate
+        expr: rate(http_requests_total{job="fastapi"}[1m]) > 100
+        for: 2m
+        labels:
+          severity: info
+        annotations:
+          summary: "High request rate"
+          description: "More than 100 requests per second"

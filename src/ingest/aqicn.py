@@ -3,11 +3,9 @@ AQICN live AQI fetcher.
 Free API — register at https://aqicn.org/api/ for token.
 
 Data note:
-  AQICN reports US EPA AQI scale.
-  We convert directly US AQI scale -> India CPCB AQI using
-  band-to-band linear interpolation — no PM2.5 back-calculation needed.
+  AQICN reports India AQI scale.
   Weather fields (t, h, w, p, dew) are real physical units.
-  Pollutant fields (pm25, pm10, no2 etc) are US AQI sub-indices.
+  Pollutant fields (pm25, pm10, no2 etc) are AQI sub-indices.
 
 Used by:
   - Airflow hourly DAG  → append today's reading to data/raw/

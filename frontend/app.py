@@ -58,7 +58,7 @@ st.set_page_config(
     initial_sidebar_state = "expanded",
 )
 
-count = st_autorefresh(interval=300000, key="autorefresh")
+# count = st_autorefresh(interval=300000, key="autorefresh")
 
 # --- Custom CSS--------
 
