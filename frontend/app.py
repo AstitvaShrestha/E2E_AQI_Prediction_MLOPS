@@ -11,15 +11,25 @@ Pages:
 
 
 import os
+import sys
+from pathlib import Path
+from datetime import datetime, timezone, timedelta
+
 import requests
 import pandas as pd
 import plotly.graph_objects as go
 import plotly.express as px
-from datetime import datetime
 import streamlit as st
+from streamlit_autorefresh import st_autorefresh
 from dotenv import load_dotenv
 
+PROJECT_ROOT = Path(__file__).resolve().parents[1]
+if str(PROJECT_ROOT) not in sys.path:
+    sys.path.insert(0, str(PROJECT_ROOT))
+
 load_dotenv()
+
+from src.config import get_aqi_category
 
 # --- Config--------
 
@@ -47,6 +57,8 @@ st.set_page_config(
     layout      = "wide",
     initial_sidebar_state = "expanded",
 )
+
+count = st_autorefresh(interval=300000, key="autorefresh")
 
 # --- Custom CSS--------
 
@@ -93,6 +105,7 @@ st.markdown("""
     .info-box {
         background: #1e2130;
         border-left: 4px solid #4a9eff;
+        color: #f5f7fa;
         padding: 15px;
         border-radius: 0 8px 8px 0;
         margin: 10px 0;
@@ -149,7 +162,7 @@ def get_drift_status():
     try:
         resp = requests.get(
             f"{FASTAPI_URL}/drift",
-            timeout=60
+            timeout=120
         )
 
         if resp.status_code == 200:
@@ -186,14 +199,12 @@ def utc_to_ist(utc_str):
     """Convert UTC ISO string to IST for display."""
 
     try:
-        dt = datetime.fromisoformat(utc_str.replace("Z", "+00:00"))
-
-        # Add 5:30 for IST
-        from datetime import timezone, timedelta
-
         IST = timezone(timedelta(hours=5, minutes=30))
+        
+        # Force UTC interpretation then convert to IST
+        dt  = datetime.fromisoformat(utc_str.replace("Z", ""))
+        dt  = dt.replace(tzinfo=timezone.utc)  # ← force UTC
         ist = dt.astimezone(IST)
-
         return ist.strftime("%d %b %H:%M IST")
 
     except:
@@ -290,7 +301,7 @@ if page == "🌬️ AQI Forecast":
     current_aqi = forecast_data.get("current_aqi")
     if current_aqi:
         first_forecast = forecast_data["forecast"][0]
-        category       = first_forecast["category"]
+        category       = get_aqi_category(int(current_aqi))
         cat_label      = category.get("label", "Unknown")
         cat_color      = category.get("color", "#gray")
         cat_advice     = category.get("advice", "")
@@ -465,6 +476,7 @@ if page == "🌬️ AQI Forecast":
     # ── All cities summary ─────────────────────────────────────────────────
     st.subheader("All Cities — Current AQI")
 
+
     cols = st.columns(5)
     for i, city in enumerate(CITIES):
         with cols[i]:
@@ -474,6 +486,9 @@ if page == "🌬️ AQI Forecast":
                 category = city_data["category"]
                 label    = category.get("label", "")
                 color    = category.get("color", "#gray")
+                source = city_data.get("source", "unknown")
+                source_label = "🟢 Live" if source == "aqicn_live" else "🟡 Cached"
+
                 st.markdown(f"""
                 <div class="metric-card">
                     <p class="metric-label">{city}</p>
@@ -481,6 +496,9 @@ if page == "🌬️ AQI Forecast":
                        font-size:1.8rem">{aqi}</p>
                     <span style="color:{color};font-size:0.8rem">
                         {label}
+                    </span>
+                    <span style="color:#666;font-size:0.7rem">
+                        {source_label}
                     </span>
                 </div>
                 """, unsafe_allow_html=True)

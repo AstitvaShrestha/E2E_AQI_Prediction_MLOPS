@@ -38,7 +38,7 @@ AQICN_TOKEN = os.getenv("AQICN_TOKEN", "demo")
 DATA_DIR    = Path(os.getenv("DATA_DIR", "data"))
 BASE_URL    = "https://api.waqi.info/feed"
 
-# AQICN city slugs — confirmed working
+# AQICN city slugs
 CITY_SLUGS = {
     "Delhi":     "delhi",
     "Mumbai":    "mumbai",
@@ -46,42 +46,13 @@ CITY_SLUGS = {
     "Chennai":   "chennai",
     "Bengaluru": "bangalore",
 }
-
-# Direct US AQI → India CPCB AQI band mapping
-# Both scales measure same pollution, different breakpoints
-# US:    Good(0-50) Moderate(51-100) USG(101-150) Unhealthy(151-200) ...
-# India: Good(0-50) Satisfactory(51-100) Moderate(101-200) Poor(201-300) ...
-US_TO_INDIA_BREAKPOINTS = [
-    # (us_lo, us_hi, india_lo, india_hi)
-    (0,    50,   0,    50),
-    (51,  100,  51,   100),
-    (101, 150, 101,   200),
-    (151, 200, 201,   300),
-    (201, 300, 301,   400),
-    (301, 500, 401,   500),
-]
-
-
-def us_aqi_to_india_aqi(us_aqi: float) -> int:
-    """
-    Convert US EPA AQI to India CPCB AQI directly.
-    Uses linear interpolation within each corresponding band.
-
-    Example:
-      US AQI 158 (Unhealthy band 151-200)
-      → maps to India Poor band (201-300)
-      → India AQI ≈ 215
-
-    Approximate but sufficient for Prophet lag regressor.
-    Precise path would be US AQI → PM2.5 µg/m³ → India AQI
-    but difference is under 5% — negligible for our use case.
-    """
-    us_aqi = max(0.0, min(500.0, float(us_aqi)))
-    for u_lo, u_hi, i_lo, i_hi in US_TO_INDIA_BREAKPOINTS:
-        if u_lo <= us_aqi <= u_hi:
-            india = (i_hi - i_lo) / (u_hi - u_lo) * (us_aqi - u_lo) + i_lo
-            return round(india)
-    return 500
+# CITY_SLUGS = {
+#     "Delhi":     "@28.6139,77.2090",   # use coordinates for consistency
+#     "Mumbai":    "@19.0760,72.8777",
+#     "Kolkata":   "@22.5726,88.3639",
+#     "Chennai":   "@13.0827,80.2707",
+#     "Bengaluru": "@12.9716,77.5946",
+# }
 
 
 def fetch_current_aqi(city: str) -> dict | None:
@@ -143,7 +114,7 @@ def fetch_current_aqi(city: str) -> dict | None:
             logger.warning(f"AQICN {city}: no AQI in response")
             return None
 
-        india_aqi = us_aqi_to_india_aqi(int(us_aqi))
+        india_aqi = int(us_aqi)
 
         # ── Weather — these are real physical units in iaqi ────────
         result = {

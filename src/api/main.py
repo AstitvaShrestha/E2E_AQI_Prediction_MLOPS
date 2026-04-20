@@ -436,30 +436,70 @@ async def latest_aqi(city: str):
 
     
     aqi = get_current_aqi_value(city)
+    source = "aqicn_live"
 
     if aqi is None:
+        aqi    = _get_last_known_aqi(city)
+        source = "disk_cache"
+
         raise HTTPException(
             status_code=503,
             detail=f"No AQI data available for {city}"
         )
-    
+     
     return {
         "city":      city,
         "aqi":       aqi,
         "category":  get_aqi_category(int(aqi)),
         "timestamp": datetime.utcnow().isoformat(),
-        "source":    "aqicn",
+        "source":    source,
     }
 
+# @app.get("/drift")
+# async def drift_status():
+#     """
+#     Run KS-test drift detection for all cities.
+#     Returns drift status, p-values, and retraining recommendations.
+#     """
+     
+#     try:
+#         results = check_all_cities()
+#         cities_drifted = [
+#             city for city, r in results.items()
+#             if r.get("is_drifted") and not r.get("error")
+#         ]
+
+#         return {
+#             "checked_at":       datetime.utcnow().isoformat(),
+#             "cities_drifted":   cities_drifted,
+#             "retrain_required": len(cities_drifted) > 0,
+#             "results":          results,
+#         }
+    
+#     except Exception as e:
+#         logger.error(f"Drift status check failed: {e}", exc_info=True)
+#         raise HTTPException(
+#             status_code=500,
+#             detail=f"Drift check failed: {str(e)}"
+#         )
+    
 @app.get("/drift")
 async def drift_status():
-    """
-    Run KS-test drift detection for all cities.
-    Returns drift status, p-values, and retraining recommendations.
-    """
-     
     try:
-        results = check_all_cities()
+        from concurrent.futures import ThreadPoolExecutor
+        from src.features.drift import check_drift
+
+        # Run all 5 cities in parallel instead of sequential
+        with ThreadPoolExecutor(max_workers=5) as executor:
+            futures = {
+                city: executor.submit(check_drift, city)
+                for city in CITIES
+            }
+            results = {
+                city: future.result()
+                for city, future in futures.items()
+            }
+
         cities_drifted = [
             city for city, r in results.items()
             if r.get("is_drifted") and not r.get("error")
@@ -471,14 +511,8 @@ async def drift_status():
             "retrain_required": len(cities_drifted) > 0,
             "results":          results,
         }
-    
     except Exception as e:
-        logger.error(f"Drift status check failed: {e}", exc_info=True)
-        raise HTTPException(
-            status_code=500,
-            detail=f"Drift check failed: {str(e)}"
-        )
-    
+        raise HTTPException(status_code=500, detail=str(e))
 
 @app.post("/retrain/{city}")
 async def trigger_retrain(city: str, background_tasks: BackgroundTasks):
