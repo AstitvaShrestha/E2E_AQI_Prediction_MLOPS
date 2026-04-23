@@ -3,3 +3,5 @@ __pycache__/
 data/kaggle_seed/
 models/
 data/drift/
+.pytest_cache/
+logs/

@@ -216,7 +216,7 @@ def utc_to_ist(utc_str):
 
 with st.sidebar:
     st.image(
-        "/home/astitva/Documents/IITM/MLOps/Assignments/E2E Project/aqi_prediction/images/air-quality.png",
+        str(PROJECT_ROOT / "images" / "air-quality.png"),
         width=80
     )
     st.title("AQI Prediction")
