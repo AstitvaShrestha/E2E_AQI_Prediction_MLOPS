@@ -17,9 +17,11 @@ import pendulum
 
 
 from airflow import DAG
-from airflow.operators.python import PythonOperator, BranchPythonOperator
-from airflow.operators.empty import EmptyOperator
-from airflow.utils.dates import days_ago
+from airflow.providers.standard.operators.python import (
+    PythonOperator,
+    BranchPythonOperator,
+)
+from airflow.providers.standard.operators.empty import EmptyOperator
 import logging
 
 logger = logging.getLogger(__name__)
@@ -231,9 +233,12 @@ def trigger_retrain_dag(**context):
 
     # Trigger via Airflow REST API
    
-    airflow_url = os.getenv("AIRFLOW_BASE_URL", "http://localhost:8080")
-    airflow_user = os.getenv("AIRFLOW_USERNAME", "admin")
-    airflow_pass = os.getenv("AIRFLOW_PASSWORD", "admin")
+    airflow_url = os.getenv(
+        "AIRFLOW_BASE_URL",
+        "http://airflow-webserver:8080",
+    )
+    airflow_user = os.getenv("AIRFLOW_USERNAME", "airflow")
+    airflow_pass = os.getenv("AIRFLOW_PASSWORD", "airflow")
 
     for city in drifted_cities:
         try:

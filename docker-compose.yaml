@@ -5,10 +5,18 @@ x-airflow-common: &airflow-common
     dockerfile: docker/Dockerfile.airflow
   environment:
     AIRFLOW__CORE__EXECUTOR: LocalExecutor
+    AIRFLOW__CORE__PARALLELISM: "${AIRFLOW_PARALLELISM:-2}"
+    AIRFLOW__CORE__MAX_ACTIVE_TASKS_PER_DAG: "${AIRFLOW_MAX_ACTIVE_TASKS_PER_DAG:-2}"
+    AIRFLOW__SCHEDULER__PARSING_PROCESSES: "${AIRFLOW_PARSING_PROCESSES:-1}"
     AIRFLOW__DATABASE__SQL_ALCHEMY_CONN: postgresql+psycopg2://airflow:airflow@postgres/airflow
     AIRFLOW__CORE__FERNET_KEY: ""
     AIRFLOW__CORE__DAGS_ARE_PAUSED_AT_CREATION: "false"
     AIRFLOW__CORE__LOAD_EXAMPLES: "false"
+    AIRFLOW__CORE__SIMPLE_AUTH_MANAGER_USERS: "${AIRFLOW_USERNAME}:ADMIN"
+    AIRFLOW__CORE__SIMPLE_AUTH_MANAGER_PASSWORDS_FILE: "/opt/airflow/logs/simple_auth_manager_passwords.json"
+    AIRFLOW__CORE__EXECUTION_API_SERVER_URL: "http://airflow-webserver:8080/execution/"
+    AIRFLOW_BASE_URL: ${AIRFLOW_BASE_URL}
+    AIRFLOW__API_AUTH__JWT_SECRET: "aqi_prediction_jwt_secret_2026"
     AIRFLOW__API__AUTH_BACKENDS: airflow.api.auth.backend.basic_auth
     AIRFLOW__API__SECRET_KEY: "aqi_prediction_secret_key_2026"
     MLFLOW_TRACKING_URI: http://mlflow:5000
@@ -54,7 +62,11 @@ services:
     command:
       - -c
       - |
+        printf '{"%s": "%s"}\n' "$AIRFLOW_USERNAME" "$AIRFLOW_PASSWORD" > /opt/airflow/logs/simple_auth_manager_passwords.json
+        echo "Airflow login: ${AIRFLOW_USERNAME} / ${AIRFLOW_PASSWORD}"
         airflow db migrate
+        airflow pools set retrain_pool "${RETRAIN_POOL_SLOTS:-2}" "Limit concurrent city retraining tasks"
+        echo "Airflow pool ready: retrain_pool (slots=${RETRAIN_POOL_SLOTS:-2})"
     restart: on-failure
 
   # ── Airflow webserver ──────────────────────────────────────────────────────
@@ -62,6 +74,8 @@ services:
     <<: *airflow-common
     container_name: aqi-prediction-airflow-webserver
     command: api-server
+    cpus: "${AIRFLOW_WEBSERVER_CPUS:-0.75}"
+    mem_limit: "${AIRFLOW_WEBSERVER_MEM:-1g}"
     ports:
       - "8080:8080"
     healthcheck:
@@ -76,6 +90,17 @@ services:
     <<: *airflow-common
     container_name: aqi-prediction-airflow-scheduler
     command: scheduler
+    cpus: "${AIRFLOW_SCHEDULER_CPUS:-1.0}"
+    mem_limit: "${AIRFLOW_SCHEDULER_MEM:-2g}"
+    restart: unless-stopped
+
+  # ── Airflow DAG Processor ────────────────────────────────────────────────
+  airflow-dag-processor:
+    <<: *airflow-common
+    container_name: aqi-prediction-airflow-dag-processor
+    command: dag-processor
+    cpus: "${AIRFLOW_DAG_PROCESSOR_CPUS:-0.5}"
+    mem_limit: "${AIRFLOW_DAG_PROCESSOR_MEM:-1g}"
     restart: unless-stopped
 
   # ── MLflow ─────────────────────────────────────────────────────────────────

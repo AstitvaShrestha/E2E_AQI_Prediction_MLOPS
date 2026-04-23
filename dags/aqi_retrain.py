@@ -12,9 +12,8 @@ Example manual trigger conf:
 
 from datetime import datetime, timedelta
 from airflow import DAG
-from airflow.operators.python import PythonOperator
-from airflow.operators.empty import EmptyOperator
-from airflow.utils.dates import days_ago
+from airflow.providers.standard.operators.python import PythonOperator
+from airflow.providers.standard.operators.empty import EmptyOperator
 import logging
 import pendulum
 

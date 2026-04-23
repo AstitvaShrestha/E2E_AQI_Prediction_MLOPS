@@ -20,8 +20,7 @@ NOT scheduled — manual trigger only.
 
 from datetime import datetime, timedelta
 from airflow import DAG
-from airflow.operators.python import PythonOperator
-from airflow.utils.dates import days_ago
+from airflow.providers.standard.operators.python import PythonOperator
 import logging
 import pendulum
 
@@ -142,7 +141,7 @@ def validate_and_parse_conf(**context):
     )
 
 
-    context["ti"].xcom_push(keys="params", value=params)
+    context["ti"].xcom_push(key="params", value=params)
     return params
 
 
@@ -161,7 +160,7 @@ def backfill_openaq(**context):
 
 
     ti = context["ti"]
-    params = ti.xcom_pull(task_ids="validate_conf", keys="params")
+    params = ti.xcom_pull(task_ids="validate_conf", key="params")
 
     date_from = datetime.fromisoformat(params["date_from"])
     date_to   = datetime.fromisoformat(params["date_to"])
