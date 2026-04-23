@@ -259,6 +259,7 @@ def train_prophet(city, df, run_name=None):
 
         for reg in available:
             model.add_regressor(reg)
+            train_df[reg] = train_df[reg].fillna(0.0)
 
         # Train
         logger.info(

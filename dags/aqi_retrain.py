@@ -149,7 +149,6 @@ def retrain_city(city, **context):
     import pandas as pd
     from src.train.trainer import (
         train_prophet,
-        train_sarima,
         evaluate_and_promote,
     )
 
@@ -173,10 +172,6 @@ def retrain_city(city, **context):
         f"{df['ds'].min().date()} → {df['ds'].max().date()}"
     )
 
-    # Train SARIMA baseline
-    sarima_metrics = train_sarima(city, df)
-    logger.info(f"SARIMA {city}: MAE={sarima_metrics['mae']:.2f}")
-
     # Train Prophet
     model, prophet_metrics = train_prophet(city, df)
     logger.info(f"Prophet {city}: MAE={prophet_metrics['mae']:.2f}")
@@ -191,9 +186,7 @@ def retrain_city(city, **context):
 
     result = {
         "city":        city,
-        "sarima_mae":  sarima_metrics["mae"],
         "prophet_mae": prophet_metrics["mae"],
-        "improvement": sarima_metrics["mae"] - prophet_metrics["mae"],
         "promoted":    promoted,
         "version":     prophet_metrics["version"],
     }
@@ -260,14 +253,10 @@ def log_retrain_summary(**context):
     logger.info("=" * 60)
     logger.info("RETRAINING SUMMARY")
     logger.info("=" * 60)
-    logger.info(
-        f"{'City':<12} {'SARIMA':>8} {'Prophet':>9} "
-        f"{'Improvement':>13} {'Status'}"
-    )
-    logger.info("-" * 60)
+    logger.info(f"{'City':<12} {'Prophet MAE':>12} {'Status'}")
+    logger.info("-" * 40)
 
-
-    promoted_count = 0  
+    promoted_count = 0
 
     for city in cities:
         result = ti.xcom_pull(
@@ -277,22 +266,20 @@ def log_retrain_summary(**context):
 
         if result:
             status = "champion ✓" if result["promoted"] else "rejected"
-            
+
             if result["promoted"]:
                 promoted_count += 1
-            
+
             logger.info(
                 f"{city:<12} "
-                f"{result['sarima_mae']:>8.2f} "
-                f"{result['prophet_mae']:>9.2f} "
-                f"{result['improvement']:>13.2f} "
+                f"{result['prophet_mae']:>12.2f} "
                 f"{status}"
             )
 
         else:
             logger.warning(f"{city:<12} FAILED")
 
-    logger.info("-" * 60)
+    logger.info("-" * 40)
     logger.info(
         f"Promoted {promoted_count}/{len(cities)} models to champion"
     )
