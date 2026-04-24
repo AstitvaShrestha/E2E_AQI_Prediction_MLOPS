@@ -1,9 +1,9 @@
 stages:
 
   seed_kaggle:
-    cmd: python src/ingest/seed_from_kaggle.py
+    cmd: python scripts/seed_from_kaggle.py
     deps:
-      - src/ingest/seed_from_kaggle.py
+      - scripts/seed_from_kaggle.py
       - src/config.py
     outs:
       - data/raw/:

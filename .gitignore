@@ -12,3 +12,4 @@ data/drift/
 mlflow/artifacts/
 mlflow/mlflow.db
 reports/
+/reports

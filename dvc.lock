@@ -1,0 +1,92 @@
+schema: '2.0'
+stages:
+  seed_kaggle:
+    cmd: python scripts/seed_from_kaggle.py
+    deps:
+    - path: scripts/seed_from_kaggle.py
+      hash: md5
+      md5: bb3bec4416b78f6a9733a54d6361cdab
+      size: 11558
+    - path: src/config.py
+      hash: md5
+      md5: 8000f2fd127d25db7e8bed6799fc9bff
+      size: 3692
+    outs:
+    - path: data/raw/
+      hash: md5
+      md5: f91a7d477c06948a582165a6e0f64bc4.dir
+      size: 100519718
+      nfiles: 13544
+  build_features:
+    cmd: python src/features/pipeline.py
+    deps:
+    - path: data/raw/
+      hash: md5
+      md5: f91a7d477c06948a582165a6e0f64bc4.dir
+      size: 100519718
+      nfiles: 13544
+    - path: src/config.py
+      hash: md5
+      md5: 8000f2fd127d25db7e8bed6799fc9bff
+      size: 3692
+    - path: src/features/pipeline.py
+      hash: md5
+      md5: d35c11d5a3334194ecc004e618e61e34
+      size: 19770
+    outs:
+    - path: data/baseline/
+      hash: md5
+      md5: f62dd14cee3de344962be6ebfa82844e.dir
+      size: 1651290
+      nfiles: 10
+    - path: data/processed/
+      hash: md5
+      md5: 2c6a435866fdf1ad8f71b9f3e57d27e7.dir
+      size: 10896097
+      nfiles: 5
+  train:
+    cmd: "docker compose run --rm -e MLFLOW_TRACKING_URI=http://mlflow:5000 -e DATA_DIR=/app/data
+      -e PYTHONPATH=/app fastapi python src/train/trainer.py\n"
+    deps:
+    - path: data/processed/
+      hash: md5
+      md5: 2c6a435866fdf1ad8f71b9f3e57d27e7.dir
+      size: 10896097
+      nfiles: 5
+    - path: src/config.py
+      hash: md5
+      md5: 8000f2fd127d25db7e8bed6799fc9bff
+      size: 3692
+    - path: src/train/trainer.py
+      hash: md5
+      md5: af1505af44ca6e12f60721275ed5526b
+      size: 21631
+    outs:
+    - path: mlflow/artifacts/
+      hash: md5
+      md5: 94987e520ecb9e9be2970917621cdf86.dir
+      size: 845967556
+      nfiles: 172
+  evaluate:
+    cmd: "docker compose exec fastapi python /app/scripts/evaluate.py\n"
+    deps:
+    - path: data/processed/
+      hash: md5
+      md5: 2c6a435866fdf1ad8f71b9f3e57d27e7.dir
+      size: 10896097
+      nfiles: 5
+    - path: mlflow/artifacts/
+      hash: md5
+      md5: 94987e520ecb9e9be2970917621cdf86.dir
+      size: 845967556
+      nfiles: 172
+    - path: scripts/evaluate.py
+      hash: md5
+      md5: a28eb48c9ea0d0bbf2fe13cb4dda31a0
+      size: 17265
+    outs:
+    - path: reports/
+      hash: md5
+      md5: ff6c9967d13ef4a901acc652173fee8f.dir
+      size: 27124
+      nfiles: 12
