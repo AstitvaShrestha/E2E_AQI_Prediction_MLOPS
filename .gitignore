@@ -5,3 +5,10 @@ models/
 data/drift/
 .pytest_cache/
 logs/
+data/raw/
+data/processed/
+data/baseline/
+data/drift/
+mlflow/artifacts/
+mlflow/mlflow.db
+reports/

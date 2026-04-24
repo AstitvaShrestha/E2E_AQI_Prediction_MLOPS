@@ -148,7 +148,7 @@ services:
     container_name: aqi-prediction-airflow-scheduler
     command: scheduler
     cpus: "${AIRFLOW_SCHEDULER_CPUS:-1.0}"
-    mem_limit: "${AIRFLOW_SCHEDULER_MEM:-2g}"
+    # mem_limit: "${AIRFLOW_SCHEDULER_MEM:-2g}"
     restart: unless-stopped
 
   # ── Airflow DAG Processor ────────────────────────────────────────────────
@@ -188,7 +188,7 @@ services:
       dockerfile: docker/Dockerfile.api
     container_name: aqi-prediction-fastapi
     cpus: "${FASTAPI_CPUS:-0.50}"
-    mem_limit: "${FASTAPI_MEM:-2g}"
+    # mem_limit: "${FASTAPI_MEM:-2g}"
     ports:
       - "8000:8000"
     environment:

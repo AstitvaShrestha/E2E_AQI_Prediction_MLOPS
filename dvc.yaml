@@ -1,0 +1,45 @@
+stages:
+
+  seed_kaggle:
+    cmd: python src/ingest/seed_from_kaggle.py
+    deps:
+      - src/ingest/seed_from_kaggle.py
+      - src/config.py
+    outs:
+      - data/raw/:
+          persist: true
+
+  build_features:
+    cmd: python src/features/pipeline.py
+    deps:
+      - src/features/pipeline.py
+      - src/config.py
+      - data/raw/
+    outs:
+      - data/processed/
+      - data/baseline/
+
+  train:
+    cmd: >
+      docker compose run --rm
+      -e MLFLOW_TRACKING_URI=http://mlflow:5000
+      -e DATA_DIR=/app/data
+      -e PYTHONPATH=/app
+      fastapi python src/train/trainer.py
+    deps:
+      - src/train/trainer.py
+      - src/config.py
+      - data/processed/
+    outs:
+      - mlflow/artifacts/
+
+  evaluate:
+    cmd: >
+      docker compose exec fastapi
+      python /app/scripts/evaluate.py
+    deps:
+      - scripts/evaluate.py
+      - mlflow/artifacts/
+      - data/processed/
+    outs:
+      - reports/
