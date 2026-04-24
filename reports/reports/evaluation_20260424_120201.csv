@@ -1,0 +1,2 @@
+city,test_rows,test_from,test_to,mae,rmse,mape,coverage_95,category_accuracy,rush_hour_mae,mean_actual_aqi,mean_pred_aqi,version
+Delhi,156,2026-04-16,2026-04-23,26.91,37.4,22.5,65.4,75.6,22.33,152.2,154.6,3

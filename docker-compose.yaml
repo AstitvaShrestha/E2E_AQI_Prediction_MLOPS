@@ -57,14 +57,12 @@ x-airflow-common: &airflow-common
     AIRFLOW__CORE__FERNET_KEY: ""
     AIRFLOW__CORE__DAGS_ARE_PAUSED_AT_CREATION: "false"
     AIRFLOW__CORE__LOAD_EXAMPLES: "false"
-    AIRFLOW__CORE__SIMPLE_AUTH_MANAGER_USERS: "${AIRFLOW_USERNAME}:ADMIN"
-    AIRFLOW__CORE__SIMPLE_AUTH_MANAGER_PASSWORDS: "${AIRFLOW_USERNAME}:${AIRFLOW_PASSWORD}"
+    AIRFLOW__CORE__AUTH_MANAGER: airflow.providers.fab.auth_manager.fab_auth_manager.FabAuthManager
     AIRFLOW_USERNAME: "${AIRFLOW_USERNAME}"
     AIRFLOW_PASSWORD: "${AIRFLOW_PASSWORD}"
     AIRFLOW__CORE__EXECUTION_API_SERVER_URL: "http://airflow-webserver:8080/execution/"
     AIRFLOW_BASE_URL: ${AIRFLOW_BASE_URL}
-    AIRFLOW__API_AUTH__JWT_SECRET: "aqi_prediction_jwt_secret_2026"
-    AIRFLOW__API__AUTH_BACKENDS: airflow.api.auth.backend.basic_auth
+    AIRFLOW__API__AUTH_BACKENDS: airflow.providers.fab.auth_manager.api.auth.backend.basic_auth
     AIRFLOW__API__SECRET_KEY: "aqi_prediction_secret_key_2026"
     MLFLOW_TRACKING_URI: http://mlflow:5000
     OPENAQ_API_KEY:       ${OPENAQ_API_KEY}
@@ -109,11 +107,20 @@ services:
     command:
       - -c
       - |
-        printf '{"%s": "%s"}\n' "$AIRFLOW_USERNAME" "$AIRFLOW_PASSWORD" > /opt/airflow/logs/simple_auth_manager_passwords.json
-        echo "Airflow login: ${AIRFLOW_USERNAME} / ${AIRFLOW_PASSWORD}"
+        mkdir -p /opt/airflow/{logs,dags,plugins,config}
+        chown -R "${AIRFLOW_UID:-50000}:0" /opt/airflow/
+        chown -R "${AIRFLOW_UID:-50000}:0" /app/mlflow/artifacts || true
         airflow db migrate
-        airflow pools set retrain_pool "${RETRAIN_POOL_SLOTS:-2}" "Limit concurrent city retraining tasks"
-        echo "Airflow pool ready: retrain_pool (slots=${RETRAIN_POOL_SLOTS:-2})"
+        airflow users create \
+          --username "${AIRFLOW_USERNAME}" \
+          --password "${AIRFLOW_PASSWORD}" \
+          --firstname Admin \
+          --lastname User \
+          --role Admin \
+          --email admin@aqi-prediction.local || true
+        airflow pools set retrain_pool "${RETRAIN_POOL_SLOTS:-1}" "Limit concurrent city retraining tasks"
+        echo "Airflow ready: ${AIRFLOW_USERNAME} / ${AIRFLOW_PASSWORD}"
+    user: "0:0"
     restart: on-failure
 
   # ── Airflow webserver ──────────────────────────────────────────────────────
@@ -181,7 +188,7 @@ services:
       dockerfile: docker/Dockerfile.api
     container_name: aqi-prediction-fastapi
     cpus: "${FASTAPI_CPUS:-0.50}"
-    mem_limit: "${FASTAPI_MEM:-1g}"
+    mem_limit: "${FASTAPI_MEM:-2g}"
     ports:
       - "8000:8000"
     environment:
@@ -196,6 +203,8 @@ services:
       - ./models:/app/models
       - ./mlflow:/app/mlflow
       - ./mlflow/artifacts:/mlflow/artifacts
+      - ./scripts:/app/scripts
+      - ./reports:/app/reports
       - ./src:/app/src
     depends_on:
       mlflow:

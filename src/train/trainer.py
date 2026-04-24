@@ -123,6 +123,44 @@ def split_train_test(df, test_days=7):
     return train_df, test_df
 
 
+def _compute_regression_metrics(y_true, y_pred):
+    """Compute MAE, RMSE, and MAPE for numeric predictions."""
+    mae = float(mean_absolute_error(y_true, y_pred))
+    rmse = float(np.sqrt(mean_squared_error(y_true, y_pred)))
+    mape = float(np.mean(np.abs((y_true - y_pred) / (y_true + 1e-8))) * 100)
+    return {"mae": mae, "rmse": rmse, "mape": mape}
+
+
+def _compute_category_accuracy(y_true, y_pred):
+    """Compute AQI category match accuracy (%) using CPCB category labels."""
+    true_labels = [get_aqi_category(int(v))["label"] for v in y_true]
+    pred_labels = [get_aqi_category(int(v))["label"] for v in y_pred]
+    if not true_labels:
+        return 0.0
+    return float(np.mean(np.array(true_labels) == np.array(pred_labels)) * 100)
+
+
+def _compute_coverage_95(y_true, y_lower, y_upper):
+    """Compute empirical 95% interval coverage (%)."""
+    if len(y_true) == 0:
+        return 0.0
+    covered = (y_true >= y_lower) & (y_true <= y_upper)
+    return float(np.mean(covered) * 100)
+
+
+def _compute_boundary_error_rate(y_true, y_pred, margin=10):
+    """% of points that are category-mismatched near AQI boundaries."""
+    if len(y_true) == 0:
+        return 0.0
+    boundaries = np.array([50, 100, 200, 300, 400], dtype=float)
+    true_labels = np.array([get_aqi_category(int(v))["label"] for v in y_true])
+    pred_labels = np.array([get_aqi_category(int(v))["label"] for v in y_pred])
+    mismatches = true_labels != pred_labels
+    dist_to_boundary = np.min(np.abs(y_true.reshape(-1, 1) - boundaries), axis=1)
+    near_boundary = dist_to_boundary <= margin
+    return float(np.mean(mismatches & near_boundary) * 100)
+
+
 # -----Plots-----
 
 def plot_forecast(model, forecast, city, path):
@@ -180,17 +218,65 @@ def train_sarima(city, df):
                 enforce_invertibility=False,
             ).fit(disp=False, maxiter=100)
 
-            y_true   = test_df["y"].values
-            y_pred   = np.array(model.forecast(steps=len(test_df)))
-            mae      = float(mean_absolute_error(y_true, y_pred))
-            rmse     = float(np.sqrt(mean_squared_error(y_true, y_pred)))
-            mape     = float(np.mean(
-                np.abs((y_true - y_pred) / (y_true + 1e-8))
-            ) * 100)
+            y_train_true = train_df["y"].values
+            y_train_pred = np.array(model.fittedvalues)
+            train_metrics = _compute_regression_metrics(y_train_true, y_train_pred)
 
-            mlflow.log_metrics({"mae": mae, "rmse": rmse, "mape": mape})
-            logger.info(f"SARIMA {city}: MAE={mae:.2f}")
-            return {"mae": mae, "rmse": rmse, "mape": mape}
+            y_test_true = test_df["y"].values
+            forecast_res = model.get_forecast(steps=len(test_df))
+            y_test_pred = np.array(forecast_res.predicted_mean)
+            conf_int = forecast_res.conf_int(alpha=0.05)
+            y_test_lower = np.array(conf_int.iloc[:, 0])
+            y_test_upper = np.array(conf_int.iloc[:, 1])
+            test_metrics = _compute_regression_metrics(y_test_true, y_test_pred)
+            category_accuracy = _compute_category_accuracy(y_test_true, y_test_pred)
+            coverage_95 = _compute_coverage_95(y_test_true, y_test_lower, y_test_upper)
+            boundary_error_rate = _compute_boundary_error_rate(y_test_true, y_test_pred)
+
+            gap_metrics = {
+                "gap_mae": test_metrics["mae"] - train_metrics["mae"],
+                "gap_rmse": test_metrics["rmse"] - train_metrics["rmse"],
+                "gap_mape": test_metrics["mape"] - train_metrics["mape"],
+            }
+
+            mlflow.log_metrics({
+                "mae": test_metrics["mae"],
+                "rmse": test_metrics["rmse"],
+                "mape": test_metrics["mape"],
+                "train_mae": train_metrics["mae"],
+                "train_rmse": train_metrics["rmse"],
+                "train_mape": train_metrics["mape"],
+                "test_mae": test_metrics["mae"],
+                "test_rmse": test_metrics["rmse"],
+                "test_mape": test_metrics["mape"],
+                "category_accuracy": category_accuracy,
+                "coverage_95": coverage_95,
+                "boundary_error_rate": boundary_error_rate,
+                "test_category_accuracy": category_accuracy,
+                "test_coverage_95": coverage_95,
+                "test_boundary_error_rate": boundary_error_rate,
+                **gap_metrics,
+            })
+            logger.info(
+                f"SARIMA {city}: test_MAE={test_metrics['mae']:.2f} "
+                f"train_MAE={train_metrics['mae']:.2f} "
+                f"gap_MAE={gap_metrics['gap_mae']:.2f} "
+                f"CatAcc={category_accuracy:.1f}% "
+                f"Coverage95={coverage_95:.1f}% "
+                f"BoundaryErr={boundary_error_rate:.1f}%"
+            )
+            return {
+                "mae": test_metrics["mae"],
+                "rmse": test_metrics["rmse"],
+                "mape": test_metrics["mape"],
+                "category_accuracy": category_accuracy,
+                "coverage_95": coverage_95,
+                "boundary_error_rate": boundary_error_rate,
+                "train_mae": train_metrics["mae"],
+                "train_rmse": train_metrics["rmse"],
+                "train_mape": train_metrics["mape"],
+                **gap_metrics,
+            }
         
         except Exception as e:
             logger.error(f"SARIMA failed for {city}: {e}")
@@ -287,24 +373,59 @@ def train_prophet(city, df, run_name=None):
                               if reg in train_df.columns else 0
                 
         forecast = model.predict(future)
-        y_true   = test_df["y"].values
-        y_pred   = np.clip(
-            forecast["yhat"].values[:len(y_true)], 0, 500
+        y_test_true = test_df["y"].values
+        y_test_pred = np.clip(
+            forecast["yhat"].values[:len(y_test_true)], 0, 500
+        )
+        y_test_lower = np.clip(
+            forecast["yhat_lower"].values[:len(y_test_true)], 0, 500
+        )
+        y_test_upper = np.clip(
+            forecast["yhat_upper"].values[:len(y_test_true)], 0, 500
         )
 
-        # Metrics
-        mae  = float(mean_absolute_error(y_true, y_pred))
-        rmse = float(np.sqrt(mean_squared_error(y_true, y_pred)))
-        mape = float(
-            np.mean(np.abs((y_true - y_pred) /
-                           (y_true + 1e-8))) * 100
+        train_pred_df = model.predict(train_df[["ds"] + available])
+        y_train_true = train_df["y"].values
+        y_train_pred = np.clip(
+            train_pred_df["yhat"].values[:len(y_train_true)], 0, 500
         )
 
+        train_metrics = _compute_regression_metrics(y_train_true, y_train_pred)
+        test_metrics = _compute_regression_metrics(y_test_true, y_test_pred)
+        category_accuracy = _compute_category_accuracy(y_test_true, y_test_pred)
+        coverage_95 = _compute_coverage_95(y_test_true, y_test_lower, y_test_upper)
+        boundary_error_rate = _compute_boundary_error_rate(y_test_true, y_test_pred)
+        gap_metrics = {
+            "gap_mae": test_metrics["mae"] - train_metrics["mae"],
+            "gap_rmse": test_metrics["rmse"] - train_metrics["rmse"],
+            "gap_mape": test_metrics["mape"] - train_metrics["mape"],
+        }
 
-        mlflow.log_metrics({"mae": mae, "rmse": rmse, "mape": mape})
+        mlflow.log_metrics({
+            "mae": test_metrics["mae"],
+            "rmse": test_metrics["rmse"],
+            "mape": test_metrics["mape"],
+            "train_mae": train_metrics["mae"],
+            "train_rmse": train_metrics["rmse"],
+            "train_mape": train_metrics["mape"],
+            "test_mae": test_metrics["mae"],
+            "test_rmse": test_metrics["rmse"],
+            "test_mape": test_metrics["mape"],
+            "category_accuracy": category_accuracy,
+            "coverage_95": coverage_95,
+            "boundary_error_rate": boundary_error_rate,
+            "test_category_accuracy": category_accuracy,
+            "test_coverage_95": coverage_95,
+            "test_boundary_error_rate": boundary_error_rate,
+            **gap_metrics,
+        })
         logger.info(
-            f"Prophet {city}: MAE={mae:.2f} "
-            f"RMSE={rmse:.2f} MAPE={mape:.1f}%"
+            f"Prophet {city}: test_MAE={test_metrics['mae']:.2f} "
+            f"train_MAE={train_metrics['mae']:.2f} "
+            f"gap_MAE={gap_metrics['gap_mae']:.2f} "
+            f"CatAcc={category_accuracy:.1f}% "
+            f"Coverage95={coverage_95:.1f}% "
+            f"BoundaryErr={boundary_error_rate:.1f}%"
         )
 
         # Artifacts
@@ -316,7 +437,7 @@ def train_prophet(city, df, run_name=None):
                       str(tmp / "forecast.png"))
         mlflow.log_artifact(str(tmp / "forecast.png"))
 
-        plot_residuals(y_true, y_pred, city,
+        plot_residuals(y_test_true, y_test_pred, city,
                        str(tmp / "residuals.png"))
         mlflow.log_artifact(str(tmp / "residuals.png"))
 
@@ -341,8 +462,19 @@ def train_prophet(city, df, run_name=None):
             f"Registered {model_name} v{registered.version}"
         )
 
-        return model, {"mae": mae, "rmse": rmse, "mape": mape,
-                       "version": registered.version}
+        return model, {
+            "mae": test_metrics["mae"],
+            "rmse": test_metrics["rmse"],
+            "mape": test_metrics["mape"],
+            "category_accuracy": category_accuracy,
+            "coverage_95": coverage_95,
+            "boundary_error_rate": boundary_error_rate,
+            "train_mae": train_metrics["mae"],
+            "train_rmse": train_metrics["rmse"],
+            "train_mape": train_metrics["mape"],
+            **gap_metrics,
+            "version": registered.version,
+        }
     
 
 def evaluate_and_promote(city, new_mae, new_version):
@@ -422,13 +554,33 @@ if __name__ == "__main__":
         format="%(asctime)s %(levelname)s %(name)s: %(message)s"
     )
 
+    import argparse
+
+    parser = argparse.ArgumentParser(
+        description="Train AQI Prophet + SARIMA models"
+    )
+    parser.add_argument(
+        "--city",
+        type    = str,
+        default = None,
+        help = "City to train (default: all cities)",
+    )
+    args = parser.parse_args()
+
+
+
+
     mlflow.set_tracking_uri(MLFLOW_URI)
     print(f"MLflow: {MLFLOW_URI}")
     print(f"MLflow version: {mlflow.__version__}\n")
 
+
+    cities_to_train = [args.city] if args.city else list(CITIES.keys())
+    print(f"Cities to train: {', '.join(cities_to_train)}")
+    
     summary = {}
 
-    for city in CITIES:
+    for city in cities_to_train:
         print(f"\n{'='*50}")
         print(f"  {city}")
         print(f"{'='*50}")

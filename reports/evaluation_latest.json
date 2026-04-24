@@ -1,0 +1,291 @@
+{
+  "generated_at": "2026-04-24T12:35:59.490907",
+  "mlflow_uri": "http://mlflow:5000",
+  "results": [
+    {
+      "city": "Delhi",
+      "test_rows": 691,
+      "test_from": "2026-03-24",
+      "test_to": "2026-04-23",
+      "mae": 26.85,
+      "rmse": 38.34,
+      "mape": 22.7,
+      "coverage_95": 65.3,
+      "calibration_gap": 29.7,
+      "category_accuracy": 72.5,
+      "boundary_error_rate": 10.6,
+      "boundary_share_of_errors": 0.384,
+      "category_accuracy_ex_boundary": 78.9,
+      "coverage_95_ex_boundary": 67.5,
+      "calibration_bins": [
+        {
+          "bin": 1,
+          "width_low": 55.79,
+          "width_high": 59.49,
+          "count": 138,
+          "coverage": 60.9
+        },
+        {
+          "bin": 2,
+          "width_low": 59.49,
+          "width_high": 60.41,
+          "count": 138,
+          "coverage": 67.4
+        },
+        {
+          "bin": 3,
+          "width_low": 60.41,
+          "width_high": 61.27,
+          "count": 138,
+          "coverage": 67.4
+        },
+        {
+          "bin": 4,
+          "width_low": 61.27,
+          "width_high": 62.17,
+          "count": 138,
+          "coverage": 63.0
+        },
+        {
+          "bin": 5,
+          "width_low": 62.17,
+          "width_high": 65.66,
+          "count": 139,
+          "coverage": 67.6
+        }
+      ],
+      "rush_hour_mae": 25.44,
+      "mean_actual_aqi": 140.4,
+      "mean_pred_aqi": 143.4,
+      "version": "3"
+    },
+    {
+      "city": "Mumbai",
+      "test_rows": 657,
+      "test_from": "2026-03-24",
+      "test_to": "2026-04-23",
+      "mae": 16.66,
+      "rmse": 34.1,
+      "mape": 20.26,
+      "coverage_95": 77.2,
+      "calibration_gap": 17.8,
+      "category_accuracy": 78.2,
+      "boundary_error_rate": 10.2,
+      "boundary_share_of_errors": 0.469,
+      "category_accuracy_ex_boundary": 82.5,
+      "coverage_95_ex_boundary": 75.9,
+      "calibration_bins": [
+        {
+          "bin": 1,
+          "width_low": 43.79,
+          "width_high": 46.76,
+          "count": 132,
+          "coverage": 74.2
+        },
+        {
+          "bin": 2,
+          "width_low": 46.76,
+          "width_high": 47.47,
+          "count": 131,
+          "coverage": 79.4
+        },
+        {
+          "bin": 3,
+          "width_low": 47.47,
+          "width_high": 48.15,
+          "count": 131,
+          "coverage": 75.6
+        },
+        {
+          "bin": 4,
+          "width_low": 48.15,
+          "width_high": 49.01,
+          "count": 131,
+          "coverage": 78.6
+        },
+        {
+          "bin": 5,
+          "width_low": 49.01,
+          "width_high": 52.72,
+          "count": 132,
+          "coverage": 78.0
+        }
+      ],
+      "rush_hour_mae": 17.1,
+      "mean_actual_aqi": 87.0,
+      "mean_pred_aqi": 87.3,
+      "version": "3"
+    },
+    {
+      "city": "Kolkata",
+      "test_rows": 653,
+      "test_from": "2026-03-24",
+      "test_to": "2026-04-23",
+      "mae": 18.8,
+      "rmse": 31.83,
+      "mape": 21.58,
+      "coverage_95": 80.4,
+      "calibration_gap": 14.6,
+      "category_accuracy": 81.3,
+      "boundary_error_rate": 7.2,
+      "boundary_share_of_errors": 0.385,
+      "category_accuracy_ex_boundary": 84.8,
+      "coverage_95_ex_boundary": 82.8,
+      "calibration_bins": [
+        {
+          "bin": 1,
+          "width_low": 50.58,
+          "width_high": 54.25,
+          "count": 131,
+          "coverage": 80.2
+        },
+        {
+          "bin": 2,
+          "width_low": 54.25,
+          "width_high": 55.17,
+          "count": 130,
+          "coverage": 79.2
+        },
+        {
+          "bin": 3,
+          "width_low": 55.17,
+          "width_high": 55.91,
+          "count": 131,
+          "coverage": 79.4
+        },
+        {
+          "bin": 4,
+          "width_low": 55.91,
+          "width_high": 56.85,
+          "count": 130,
+          "coverage": 78.5
+        },
+        {
+          "bin": 5,
+          "width_low": 56.85,
+          "width_high": 61.1,
+          "count": 131,
+          "coverage": 84.7
+        }
+      ],
+      "rush_hour_mae": 18.7,
+      "mean_actual_aqi": 83.9,
+      "mean_pred_aqi": 83.1,
+      "version": "3"
+    },
+    {
+      "city": "Chennai",
+      "test_rows": 654,
+      "test_from": "2026-03-24",
+      "test_to": "2026-04-23",
+      "mae": 18.75,
+      "rmse": 31.76,
+      "mape": 26.08,
+      "coverage_95": 63.5,
+      "calibration_gap": 31.5,
+      "category_accuracy": 62.5,
+      "boundary_error_rate": 20.3,
+      "boundary_share_of_errors": 0.543,
+      "category_accuracy_ex_boundary": 70.7,
+      "coverage_95_ex_boundary": 61.5,
+      "calibration_bins": [
+        {
+          "bin": 1,
+          "width_low": 31.52,
+          "width_high": 33.81,
+          "count": 131,
+          "coverage": 52.7
+        },
+        {
+          "bin": 2,
+          "width_low": 33.81,
+          "width_high": 34.43,
+          "count": 131,
+          "coverage": 67.2
+        },
+        {
+          "bin": 3,
+          "width_low": 34.43,
+          "width_high": 34.87,
+          "count": 130,
+          "coverage": 62.3
+        },
+        {
+          "bin": 4,
+          "width_low": 34.87,
+          "width_high": 35.54,
+          "count": 131,
+          "coverage": 68.7
+        },
+        {
+          "bin": 5,
+          "width_low": 35.54,
+          "width_high": 37.6,
+          "count": 131,
+          "coverage": 66.4
+        }
+      ],
+      "rush_hour_mae": 17.45,
+      "mean_actual_aqi": 70.3,
+      "mean_pred_aqi": 62.3,
+      "version": "2"
+    },
+    {
+      "city": "Bengaluru",
+      "test_rows": 653,
+      "test_from": "2026-03-24",
+      "test_to": "2026-04-23",
+      "mae": 18.14,
+      "rmse": 30.54,
+      "mape": 17.6,
+      "coverage_95": 67.7,
+      "calibration_gap": 27.3,
+      "category_accuracy": 56.0,
+      "boundary_error_rate": 24.8,
+      "boundary_share_of_errors": 0.564,
+      "category_accuracy_ex_boundary": 63.0,
+      "coverage_95_ex_boundary": 51.5,
+      "calibration_bins": [
+        {
+          "bin": 1,
+          "width_low": 41.17,
+          "width_high": 43.67,
+          "count": 131,
+          "coverage": 72.5
+        },
+        {
+          "bin": 2,
+          "width_low": 43.67,
+          "width_high": 44.45,
+          "count": 130,
+          "coverage": 69.2
+        },
+        {
+          "bin": 3,
+          "width_low": 44.45,
+          "width_high": 45.08,
+          "count": 131,
+          "coverage": 71.0
+        },
+        {
+          "bin": 4,
+          "width_low": 45.08,
+          "width_high": 45.78,
+          "count": 130,
+          "coverage": 63.1
+        },
+        {
+          "bin": 5,
+          "width_low": 45.78,
+          "width_high": 48.61,
+          "count": 131,
+          "coverage": 62.6
+        }
+      ],
+      "rush_hour_mae": 18.32,
+      "mean_actual_aqi": 104.2,
+      "mean_pred_aqi": 106.7,
+      "version": "3"
+    }
+  ]
+}

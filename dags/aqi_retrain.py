@@ -212,7 +212,7 @@ def reload_api_models(**context):
     api_url = os.getenv("FASTAPI_URL", "http://localhost:8000") 
 
     try:
-        resp = requests.post(f"{api_url}/reload_models", timeout=30)
+        resp = requests.post(f"{api_url}/reload-models", timeout=30)
 
         if resp.status_code == 200:
             data = resp.json()

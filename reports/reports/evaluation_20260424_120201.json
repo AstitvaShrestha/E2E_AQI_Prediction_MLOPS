@@ -1,0 +1,21 @@
+{
+  "generated_at": "2026-04-24T12:02:01.168049",
+  "mlflow_uri": "http://mlflow:5000",
+  "results": [
+    {
+      "city": "Delhi",
+      "test_rows": 156,
+      "test_from": "2026-04-16",
+      "test_to": "2026-04-23",
+      "mae": 26.91,
+      "rmse": 37.4,
+      "mape": 22.5,
+      "coverage_95": 65.4,
+      "category_accuracy": 75.6,
+      "rush_hour_mae": 22.33,
+      "mean_actual_aqi": 152.2,
+      "mean_pred_aqi": 154.6,
+      "version": "3"
+    }
+  ]
+}
