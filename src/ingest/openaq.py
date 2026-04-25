@@ -178,10 +178,28 @@ def _parse_results(all_results: list) -> pd.DataFrame:
 
     df = pd.DataFrame(rows)
     df = df[(df["pm25"] >= 0) & (df["pm25"] <= 999)].copy()
+    # df["aqi"] = df["pm25"].apply(pm25_to_aqi)
+    # df = (df.sort_values("timestamp")
+    #         .drop_duplicates(subset=["timestamp"])
+    #         .reset_index(drop=True))
+
+    df = (
+        df.groupby("timestamp")
+        .agg(
+            pm25         = ("pm25",         "mean"),
+            pm25_min     = ("pm25_min",     "min"),
+            pm25_max     = ("pm25_max",     "max"),
+            pm25_sd      = ("pm25_sd",      "mean"),
+            coverage_pct = ("coverage_pct", "mean"),
+        )
+        .reset_index()
+        .sort_values("timestamp")
+        .reset_index(drop=True)
+    )
+
     df["aqi"] = df["pm25"].apply(pm25_to_aqi)
-    df = (df.sort_values("timestamp")
-            .drop_duplicates(subset=["timestamp"])
-            .reset_index(drop=True))
+    
+
     return df
 
 
