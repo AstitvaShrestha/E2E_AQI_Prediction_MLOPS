@@ -231,69 +231,52 @@ def trigger_retrain_dag(**context):
 
     logger.info(f"Triggering retraining for: {drifted_cities}")
 
-    # Trigger via Airflow REST API
-   
-    airflow_url = os.getenv(
-        "AIRFLOW_BASE_URL",
-        "http://airflow-webserver:8080",
+    # Trigger via Airflow REST API using JWT token
+    from datetime import timezone
+    airflow_url = os.getenv("AIRFLOW_BASE_URL", "http://airflow-webserver:8080")
+    airflow_user = os.getenv("AIRFLOW_USERNAME", "admin")
+    airflow_pass = os.getenv("AIRFLOW_PASSWORD", "admin")
+
+    # Get JWT token
+    token_resp = requests.post(
+        f"{airflow_url}/auth/token",
+        json={"username": airflow_user, "password": airflow_pass},
+        timeout=10,
     )
-    airflow_user = os.getenv("AIRFLOW_USERNAME", "airflow")
-    airflow_pass = os.getenv("AIRFLOW_PASSWORD", "airflow")
+    if token_resp.status_code not in (200, 201):
+        logger.error(f"Failed to get auth token: {token_resp.status_code} {token_resp.text}")
+        return drifted_cities
 
-    for city in drifted_cities:
-        try:
-            resp = requests.post(
-                 f"{airflow_url}/api/v2/dags/aqi_retrain/dagRuns",
-                json={
-                    "conf": {"cities": [city]},
-                    "dag_run_id": (
-                        f"drift_triggered_{city}_"
-                        f"{datetime.now().strftime('%Y%m%d_%H%M%S')}"
-                    ),
-                },
-                auth=(airflow_user, airflow_pass),
-                timeout=30,
-            )
+    token = token_resp.json()["access_token"]
+    headers = {
+        "Authorization": f"Bearer {token}",
+        "Content-Type": "application/json",
+    }
 
-            if resp.status_code in (200, 409):  # 409 = already running
-                logger.info(f"Retrain DAG triggered for {city}")
-            
-            else:
-                logger.error(
-                    f"Failed to trigger retrain for {city}: "
-                    f"{resp.status_code} {resp.text}"
-                )
-        
-        except Exception as e:
-            logger.error(f"Could not trigger retrain DAG for {city}: {e}")
+    try:
+        now = datetime.now(tz=timezone.utc)
+        resp = requests.post(
+            f"{airflow_url}/api/v2/dags/aqi_retrain/dagRuns",
+            json={
+                "conf": {"cities": drifted_cities},
+                "dag_run_id": f"drift_triggered_{now.strftime('%Y%m%d_%H%M%S')}",
+                "logical_date": now.isoformat(),
+            },
+            headers=headers,
+            timeout=30,
+        )
+
+        if resp.status_code in (200, 201, 409):
+            logger.info(f"Retrain DAG triggered for: {drifted_cities}")
+        else:
+            logger.error(f"Failed to trigger retrain DAG: {resp.status_code} {resp.text}")
+
+    except Exception as e:
+        logger.error(f"Could not trigger retrain DAG: {e}")
 
     return drifted_cities
 
 
-def notify_app_reload(**context):
-    """
-    Notify FastAPI to reload champion models after retraining.
-    Calls POST /reload-models endpoint.
-    """
-
-    api_url = os.getenv("FASTAPI_URL", "http://localhost:8000")
-
-    try:
-        resp = requests.post(
-            f"{api_url}/reload-models",
-            timeout=30,
-        )
-
-        if resp.status_code == 200:
-            logger.info("FastAPI models reloaded successfully")
-        
-        else:
-            logger.warning(
-                f"Model reload returned {resp.status_code}"
-            )
-
-    except Exception as e:
-        logger.warning(f"Could not reload FastAPI models: {e}")
 
 
 
@@ -401,12 +384,6 @@ with DAG(
     )
 
 
-    t_reload = PythonOperator(
-        task_id = "reload_api_models",
-        python_callable = notify_app_reload,
-        trigger_rule = "none_failed_min_one_success",
-    )
-
     t_summary = PythonOperator(
         task_id         = "log_summary",
         python_callable = log_ingestion_summary,
@@ -417,16 +394,12 @@ with DAG(
     # Task dependencies
     #
     # OpenAQ ──┐
-    # Weather ─┼──> Drift ──> Branch ──> Retrain ──> Reload ──> Summary
-    # AQICN ───┘                    └──> No retrain ───────────────┘
+    # Weather ─┼──> Drift ──> Branch ──> Retrain ──> Summary
+    # AQICN ───┘                    └──> No retrain ──┘
     #
-    # OpenAQ, Weather, AQICN run in parallel (no dependency between them)
-    # Drift runs after all three complete
-    # Branch decides retrain or skip
-    # Summary always runs last
+    # Reload happens in aqi_retrain DAG after training completes
 
-    [t_openaq, t_weather, t_aqicn] >> t_drift 
+    [t_openaq, t_weather, t_aqicn] >> t_drift
     t_drift >> t_branch
     t_branch >> [t_retrain, t_no_retrain]
-    t_retrain >> t_reload
-    [t_reload, t_no_retrain] >> t_summary
+    [t_retrain, t_no_retrain] >> t_summary

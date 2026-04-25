@@ -14,35 +14,35 @@ stages:
     outs:
     - path: data/raw/
       hash: md5
-      md5: f91a7d477c06948a582165a6e0f64bc4.dir
-      size: 100519718
-      nfiles: 13544
+      md5: 903422c00ddddfb2d657e95ea4631298.dir
+      size: 100640782
+      nfiles: 13564
   build_features:
     cmd: python src/features/pipeline.py
     deps:
     - path: data/raw/
       hash: md5
-      md5: f91a7d477c06948a582165a6e0f64bc4.dir
-      size: 100519718
-      nfiles: 13544
+      md5: 903422c00ddddfb2d657e95ea4631298.dir
+      size: 100640782
+      nfiles: 13564
     - path: src/config.py
       hash: md5
       md5: 8000f2fd127d25db7e8bed6799fc9bff
       size: 3692
     - path: src/features/pipeline.py
       hash: md5
-      md5: d35c11d5a3334194ecc004e618e61e34
-      size: 19770
+      md5: 9d284da2bd4630a4183644849112d30f
+      size: 23302
     outs:
     - path: data/baseline/
       hash: md5
-      md5: f62dd14cee3de344962be6ebfa82844e.dir
-      size: 1651290
-      nfiles: 10
+      md5: f60e1164e92a705f0a94b741e23a4490.dir
+      size: 3362623
+      nfiles: 70
     - path: data/processed/
       hash: md5
-      md5: 2c6a435866fdf1ad8f71b9f3e57d27e7.dir
-      size: 10896097
+      md5: e44331cf8129bf62746bcb12c8297e05.dir
+      size: 10898378
       nfiles: 5
   train:
     cmd: "docker compose run --rm -e MLFLOW_TRACKING_URI=http://mlflow:5000 -e DATA_DIR=/app/data
@@ -50,8 +50,8 @@ stages:
     deps:
     - path: data/processed/
       hash: md5
-      md5: 2c6a435866fdf1ad8f71b9f3e57d27e7.dir
-      size: 10896097
+      md5: e44331cf8129bf62746bcb12c8297e05.dir
+      size: 10898378
       nfiles: 5
     - path: src/config.py
       hash: md5
@@ -64,22 +64,22 @@ stages:
     outs:
     - path: mlflow/artifacts/
       hash: md5
-      md5: 94987e520ecb9e9be2970917621cdf86.dir
-      size: 845967556
-      nfiles: 172
+      md5: 9ddc9c743b37e203e6a71c84500f449b.dir
+      size: 1867227822
+      nfiles: 358
   evaluate:
     cmd: "docker compose exec fastapi python /app/scripts/evaluate.py\n"
     deps:
     - path: data/processed/
       hash: md5
-      md5: 2c6a435866fdf1ad8f71b9f3e57d27e7.dir
-      size: 10896097
+      md5: e44331cf8129bf62746bcb12c8297e05.dir
+      size: 10898378
       nfiles: 5
     - path: mlflow/artifacts/
       hash: md5
-      md5: 94987e520ecb9e9be2970917621cdf86.dir
-      size: 845967556
-      nfiles: 172
+      md5: 9ddc9c743b37e203e6a71c84500f449b.dir
+      size: 1867227822
+      nfiles: 358
     - path: scripts/evaluate.py
       hash: md5
       md5: a28eb48c9ea0d0bbf2fe13cb4dda31a0

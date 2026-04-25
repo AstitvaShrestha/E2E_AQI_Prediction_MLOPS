@@ -146,6 +146,13 @@ def retrain_city(city, **context):
     from pathlib import Path
     sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
+    # Skip if city not in drifted list
+    ti = context["ti"]
+    cities_to_retrain = ti.xcom_pull(task_ids="get_cities", key="cities") or []
+    if city not in cities_to_retrain:
+        logger.info(f"Skipping {city} — not in drifted cities list")
+        return {"city": city, "skipped": True}
+
     import pandas as pd
     from src.train.trainer import (
         train_prophet,
@@ -212,7 +219,7 @@ def reload_api_models(**context):
     api_url = os.getenv("FASTAPI_URL", "http://localhost:8000") 
 
     try:
-        resp = requests.post(f"{api_url}/reload-models", timeout=30)
+        resp = requests.post(f"{api_url}/reload-models", timeout=120)
 
         if resp.status_code == 200:
             data = resp.json()
@@ -335,7 +342,7 @@ with DAG(
     t_reload = PythonOperator(
         task_id = "reload_api_models",
         python_callable = reload_api_models,
-        execution_timeout = timedelta(minutes=5),
+        execution_timeout = timedelta(minutes=10),
         trigger_rule    = "all_done",  # reload even if some cities failed
     )
 

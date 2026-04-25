@@ -463,15 +463,24 @@ async def latest_aqi(city: str):
         "source":    source,
     }
 
+    
 # @app.get("/drift")
 # async def drift_status():
-#     """
-#     Run KS-test drift detection for all cities.
-#     Returns drift status, p-values, and retraining recommendations.
-#     """
-     
 #     try:
-#         results = check_all_cities()
+#         from concurrent.futures import ThreadPoolExecutor
+#         from src.features.drift import check_drift
+
+#         # Run all 5 cities in parallel instead of sequential
+#         with ThreadPoolExecutor(max_workers=5) as executor:
+#             futures = {
+#                 city: executor.submit(check_drift, city)
+#                 for city in CITIES
+#             }
+#             results = {
+#                 city: future.result()
+#                 for city, future in futures.items()
+#             }
+
 #         cities_drifted = [
 #             city for city, r in results.items()
 #             if r.get("is_drifted") and not r.get("error")
@@ -483,24 +492,37 @@ async def latest_aqi(city: str):
 #             "retrain_required": len(cities_drifted) > 0,
 #             "results":          results,
 #         }
-    
 #     except Exception as e:
-#         logger.error(f"Drift status check failed: {e}", exc_info=True)
-#         raise HTTPException(
-#             status_code=500,
-#             detail=f"Drift check failed: {str(e)}"
-#         )
-    
+#         raise HTTPException(status_code=500, detail=str(e))
+
 @app.get("/drift")
-async def drift_status():
+async def drift_status(seasonal: bool = False):
+    """
+    Run KS-test drift detection for all cities.
+
+    Args:
+        seasonal: if True use same-month baseline to reduce
+                  seasonal false positives (default False)
+                  Usage: GET /drift?seasonal=true
+
+    Returns drift status, p-values, and retraining recommendations.
+    """
     try:
         from concurrent.futures import ThreadPoolExecutor
         from src.features.drift import check_drift
 
-        # Run all 5 cities in parallel instead of sequential
+        # Read seasonal toggle from query param or env var
+        use_seasonal = seasonal or (
+            os.getenv("DRIFT_SEASONAL", "false").lower() == "true"
+        )
+
         with ThreadPoolExecutor(max_workers=5) as executor:
             futures = {
-                city: executor.submit(check_drift, city)
+                city: executor.submit(
+                    check_drift, city,
+                    7,            # window_days
+                    use_seasonal  # seasonal
+                )
                 for city in CITIES
             }
             results = {
@@ -517,10 +539,16 @@ async def drift_status():
             "checked_at":       datetime.utcnow().isoformat(),
             "cities_drifted":   cities_drifted,
             "retrain_required": len(cities_drifted) > 0,
+            "baseline_type":    "seasonal" if use_seasonal else "annual",
             "results":          results,
         }
+
     except Exception as e:
-        raise HTTPException(status_code=500, detail=str(e))
+        logger.error(f"Drift status check failed: {e}", exc_info=True)
+        raise HTTPException(
+            status_code=500,
+            detail=f"Drift check failed: {str(e)}"
+        )
 
 @app.post("/retrain/{city}")
 async def trigger_retrain(city: str, background_tasks: BackgroundTasks):

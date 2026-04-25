@@ -480,39 +480,114 @@ def save_features(city, df):
 
 # Baseline stats for drift detection
 
+# def compute_baseline_stats(city, df):
+#     """
+#     Compute and save baseline distribution statistics.
+#     Called once during initial setup.
+#     Used by drift.py (KS-test) to detect when live data
+#     diverges from training distribution.
+#     """
+#     baseline_dir = DATA_DIR / "baseline"
+#     baseline_dir.mkdir(parents=True, exist_ok=True)
+#     city_key = city.lower().replace(" ", "_")
+
+#     stats = {
+#         "city":        city,
+#         "computed_at": datetime.now(timezone.utc).isoformat(),
+#         "n_samples":   int(len(df)),
+#         "aqi_mean":    round(float(df["y"].mean()),   2),
+#         "aqi_std":     round(float(df["y"].std()),    2),
+#         "aqi_median":  round(float(df["y"].median()), 2),
+#         "aqi_p25":     round(float(df["y"].quantile(0.25)), 2),
+#         "aqi_p75":     round(float(df["y"].quantile(0.75)), 2),
+#         "aqi_p95":     round(float(df["y"].quantile(0.95)), 2),
+#         "wind_mean":   round(float(df["wind_speed_10m"].mean()), 2)
+#                        if "wind_speed_10m" in df.columns else None,
+#         "temp_mean":   round(float(df["temperature_2m"].mean()), 2)
+#                        if "temperature_2m" in df.columns else None,
+#     }
+
+#     # Save raw AQI distribution for KS-test comparisons
+#     baseline_df = df[["ds", "y"]].rename(columns={"y": "aqi"}).copy()
+#     baseline_df.to_parquet(
+#         baseline_dir / f"{city_key}_baseline.parquet",
+#         index=False
+#     )
+
+#     with open(baseline_dir / f"{city_key}_stats.json", "w") as f:
+#         json.dump(stats, f, indent=2)
+
+#     logger.info(
+#         f"Baseline saved for {city}: "
+#         f"mean={stats['aqi_mean']}, std={stats['aqi_std']}, "
+#         f"n={stats['n_samples']}"
+#     )
+#     return stats
+
 def compute_baseline_stats(city, df):
     """
     Compute and save baseline distribution statistics.
-    Called once during initial setup.
+    Saves both annual baseline and month-stratified baselines.
+    Called once during initial setup by pipeline.py.
     Used by drift.py (KS-test) to detect when live data
     diverges from training distribution.
+
+    Returns:
+        dict with baseline statistics (mean, std, percentiles etc)
     """
+    from datetime import timezone
+
+    city_key     = city.lower().replace(" ", "_")
     baseline_dir = DATA_DIR / "baseline"
     baseline_dir.mkdir(parents=True, exist_ok=True)
-    city_key = city.lower().replace(" ", "_")
 
-    stats = {
-        "city":        city,
-        "computed_at": datetime.now(timezone.utc).isoformat(),
-        "n_samples":   int(len(df)),
-        "aqi_mean":    round(float(df["y"].mean()),   2),
-        "aqi_std":     round(float(df["y"].std()),    2),
-        "aqi_median":  round(float(df["y"].median()), 2),
-        "aqi_p25":     round(float(df["y"].quantile(0.25)), 2),
-        "aqi_p75":     round(float(df["y"].quantile(0.75)), 2),
-        "aqi_p95":     round(float(df["y"].quantile(0.95)), 2),
-        "wind_mean":   round(float(df["wind_speed_10m"].mean()), 2)
-                       if "wind_speed_10m" in df.columns else None,
-        "temp_mean":   round(float(df["temperature_2m"].mean()), 2)
-                       if "temperature_2m" in df.columns else None,
-    }
-
-    # Save raw AQI distribution for KS-test comparisons
+    # ── Annual baseline ────────────────────────────────────────────────
     baseline_df = df[["ds", "y"]].rename(columns={"y": "aqi"}).copy()
     baseline_df.to_parquet(
         baseline_dir / f"{city_key}_baseline.parquet",
         index=False
     )
+
+    # ── Monthly stratified baselines ───────────────────────────────────
+    # April baseline = all April data from 2022, 2023, 2024, 2025
+    # Reduces false positives from seasonal distribution shifts
+    baseline_df["month"] = pd.to_datetime(baseline_df["ds"]).dt.month
+
+    for month in range(1, 13):
+        month_df = baseline_df[baseline_df["month"] == month]
+        if len(month_df) >= 100:
+            month_df[["ds", "aqi"]].to_parquet(
+                baseline_dir / f"{city_key}_baseline_m{month:02d}.parquet",
+                index=False
+            )
+            logger.info(
+                f"Saved seasonal baseline {city} month={month}: "
+                f"{len(month_df)} rows"
+            )
+        else:
+            logger.warning(
+                f"Insufficient data for {city} month={month}: "
+                f"{len(month_df)} rows — skipping seasonal baseline"
+            )
+
+    # ── Stats JSON ─────────────────────────────────────────────────────
+    stats = {
+        "city":        city,
+        "computed_at": datetime.now(timezone.utc).isoformat(),
+        "n_samples":   int(len(baseline_df)),
+        "aqi_mean":    round(float(baseline_df["aqi"].mean()),            2),
+        "aqi_std":     round(float(baseline_df["aqi"].std()),             2),
+        "aqi_median":  round(float(baseline_df["aqi"].median()),          2),
+        "aqi_p25":     round(float(baseline_df["aqi"].quantile(0.25)),    2),
+        "aqi_p75":     round(float(baseline_df["aqi"].quantile(0.75)),    2),
+        "aqi_p95":     round(float(baseline_df["aqi"].quantile(0.95)),    2),
+        "aqi_min":     round(float(baseline_df["aqi"].min()),             2),
+        "aqi_max":     round(float(baseline_df["aqi"].max()),             2),
+        "wind_mean":   round(float(df["wind_speed_10m"].mean()),          2)
+                       if "wind_speed_10m" in df.columns else None,
+        "temp_mean":   round(float(df["temperature_2m"].mean()),          2)
+                       if "temperature_2m" in df.columns else None,
+    }
 
     with open(baseline_dir / f"{city_key}_stats.json", "w") as f:
         json.dump(stats, f, indent=2)
@@ -522,9 +597,8 @@ def compute_baseline_stats(city, df):
         f"mean={stats['aqi_mean']}, std={stats['aqi_std']}, "
         f"n={stats['n_samples']}"
     )
-    return stats
 
-
+    return stats   
 
 if __name__ == "__main__":
     logging.basicConfig(
