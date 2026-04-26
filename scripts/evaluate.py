@@ -1,6 +1,4 @@
 """
-scripts/evaluate.py
-
 Evaluate champion Prophet models against held-out test data.
 Computes MAE, RMSE, MAPE for each city and generates a report.
 
