@@ -16,6 +16,7 @@ from airflow.providers.standard.operators.python import PythonOperator
 from airflow.providers.standard.operators.empty import EmptyOperator
 import logging
 import pendulum
+import os
 
 logger = logging.getLogger(__name__)
 
@@ -24,7 +25,8 @@ logger = logging.getLogger(__name__)
 DEFAULT_ARGS = {
     "owner": "aqi_prediction",
     "depends_on_past":  False,
-    "email_on_failure": False,
+    "email":            [os.getenv("AIRFLOW_ALERT_EMAIL", "admin@aqi-prediction.local")],
+    "email_on_failure": True,
     "email_on_retry":   False,
     "retries":          1,           # only 1 retry — training is expensive
     "retry_delay":      timedelta(minutes=10),

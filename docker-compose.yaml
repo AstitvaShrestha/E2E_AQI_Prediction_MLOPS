@@ -66,6 +66,14 @@ x-airflow-common: &airflow-common
     AIRFLOW__API__SECRET_KEY: "aqi_prediction_secret_key_2026"
     AIRFLOW__API_AUTH__JWT_SECRET: "aqi_prediction_jwt_secret_2026"
     AIRFLOW__API_AUTH__JWT_ISSUER: "airflow"
+    AIRFLOW__SMTP__SMTP_HOST:     "sandbox.smtp.mailtrap.io"
+    AIRFLOW__SMTP__SMTP_PORT:     "2525"
+    AIRFLOW__SMTP__SMTP_USER:     "${MAILTRAP_USERNAME}"
+    AIRFLOW__SMTP__SMTP_PASSWORD: "${MAILTRAP_PASSWORD}"
+    AIRFLOW_ALERT_EMAIL: ${AIRFLOW_ALERT_EMAIL}
+    AIRFLOW__SMTP__SMTP_MAIL_FROM: "airflow@aqi-prediction.local"
+    AIRFLOW__SMTP__SMTP_SSL:      "false"
+    AIRFLOW__SMTP__SMTP_STARTTLS: "false"
     MLFLOW_TRACKING_URI: http://mlflow:5000
     OPENAQ_API_KEY:       ${OPENAQ_API_KEY}
     AQICN_TOKEN:          ${AQICN_TOKEN}
@@ -256,6 +264,29 @@ services:
       - "--config.file=/etc/prometheus/prometheus.yml"
       - "--storage.tsdb.path=/prometheus"
       - "--web.enable-lifecycle"
+    restart: unless-stopped
+
+  # ── Alertmanager ─────────────────────────────────────────────────────────────
+  alertmanager:
+    image: prom/alertmanager:latest
+    container_name: aqi-prediction-alertmanager
+    environment:
+      MAILTRAP_USERNAME: ${MAILTRAP_USERNAME}
+      MAILTRAP_PASSWORD: ${MAILTRAP_PASSWORD}
+      ALERT_EMAIL:       ${AIRFLOW_ALERT_EMAIL}
+    entrypoint: /bin/sh
+    command:
+      - -c
+      - |
+        cp /etc/alertmanager/alertmanager.yml /tmp/alertmanager.yml
+        sed -i "s/__SMTP_USER__/$$MAILTRAP_USERNAME/g" /tmp/alertmanager.yml
+        sed -i "s/__SMTP_PASS__/$$MAILTRAP_PASSWORD/g" /tmp/alertmanager.yml
+        sed -i "s/__ALERT_EMAIL__/$$ALERT_EMAIL/g"     /tmp/alertmanager.yml
+        /bin/alertmanager --config.file=/tmp/alertmanager.yml --web.external-url=http://localhost:9093
+    ports:
+      - "9093:9093"
+    volumes:
+      - ./monitoring/alertmanager.yml:/etc/alertmanager/alertmanager.yml
     restart: unless-stopped
 
   # ── Grafana ────────────────────────────────────────────────────────────────

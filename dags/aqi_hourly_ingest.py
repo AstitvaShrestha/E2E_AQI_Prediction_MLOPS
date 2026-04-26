@@ -31,7 +31,8 @@ logger = logging.getLogger(__name__)
 DEFAULT_ARGS = {
     "owner": "aqi_prediction",
     "depends_on_past":  False,
-    "email_on_failure": False,
+    "email":            [os.getenv("AIRFLOW_ALERT_EMAIL", "admin@aqi-prediction.local")],
+    "email_on_failure": True,
     "email_on_retry":   False,
     "retries":          2,
     "retry_delay":      timedelta(minutes=5),

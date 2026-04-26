@@ -51,7 +51,58 @@ CITY_SLUGS = {
 #     "Chennai":   "@13.0827,80.2707",
 #     "Bengaluru": "@12.9716,77.5946",
 # }
-
+# AQICN station UIDs per city
+# Selected from CPCB monitoring stations — excludes outliers
+CITY_STATION_UIDS = {
+    "Delhi": [
+        10125,  # Burari Crossing
+        10114,  # Wazirpur
+        2553,   # Anand Vihar
+        10704,  # Patparganj
+        10115,  # Satyawati College
+        2556,   # R.K. Puram
+        10118,  # Shahdra
+        10124,  # Pusa
+    ],
+    "Mumbai": [
+        12464,  # Sion
+        12454,  # Kurla
+        13715,  # Bandra Kurla Complex
+        12456,  # Airport T2
+        13713,  # Chakala-Andheri
+        11921,  # Worli
+        13706,  # Siddharth Nagar
+        12455,  # Vile Parle
+        12459,  # Powai
+    ],
+    "Kolkata": [
+        9145,   # Rabindra Bharati University
+        12450,  # Belur Math
+        12458,  # Jadavpur
+        9068,   # Victoria
+        12746,  # Ballygunge
+        12457,  # Fort William
+        12745,  # Bidhannagar
+        12467,  # Rabindra Sarobar
+    ],
+    "Chennai": [
+        8185,   # Manali
+        11279,  # Velachery
+        13737,  # Royapuram
+        11859,  # Manali Village
+        13740,  # Arumbakkam
+        13739,  # Kodungaiyur
+    ],
+    "Bengaluru": [
+        11270,  # Hombegowda Nagar
+        11276,  # Jayanagar 5th Block
+        11428,  # Hebbal
+        8686,   # City Railway Station
+        11312,  # Bapuji Nagar
+        8190,   # BTM
+        12441,  # BWSSB Kadabesanahalli
+    ],
+}
 
 def fetch_current_aqi(city: str) -> dict | None:
     """
@@ -142,6 +193,99 @@ def fetch_current_aqi(city: str) -> dict | None:
     except requests.RequestException as e:
         logger.error(f"AQICN request failed for {city}: {e}")
         return None
+
+# def fetch_current_aqi(city: str) -> dict | None:
+#     """
+#     Fetch current AQI from multiple AQICN stations.
+#     Uses median to handle outlier stations.
+#     """
+#     uids = CITY_STATION_UIDS.get(city)
+#     if not uids:
+#         logger.error(f"No station UIDs configured for: {city}")
+#         return None
+
+#     readings = []
+#     for uid in uids:
+#         try:
+#             resp = requests.get(
+#                 f"{BASE_URL}/@{uid}/",
+#                 params={"token": AQICN_TOKEN},
+#                 timeout=15,
+#             )
+#             resp.raise_for_status()
+#             payload = resp.json()
+
+#             if payload.get("status") != "ok":
+#                 continue
+
+#             d      = payload["data"]
+#             iaqi   = d.get("iaqi", {})
+#             us_aqi = d.get("aqi")
+
+#             if us_aqi is None or not isinstance(us_aqi, (int, float)):
+#                 continue
+#             if us_aqi <= 0:
+#                 continue
+
+#             time_info = d.get("time", {})
+#             ts_str    = time_info.get("s", "")
+#             tz_str    = time_info.get("tz", "+05:30")
+#             try:
+#                 ts = pd.to_datetime(f"{ts_str}{tz_str}", utc=True)
+#             except Exception:
+#                 ts = datetime.now(timezone.utc)
+
+#             readings.append({
+#                 "uid":         uid,
+#                 "aqi":         int(us_aqi),
+#                 "timestamp":   ts,
+#                 "temperature": iaqi.get("t",   {}).get("v"),
+#                 "humidity":    iaqi.get("h",   {}).get("v"),
+#                 "wind_speed":  iaqi.get("w",   {}).get("v"),
+#                 "wind_dir":    iaqi.get("wd",  {}).get("v"),
+#                 "wind_gust":   iaqi.get("wg",  {}).get("v"),
+#                 "pressure":    iaqi.get("p",   {}).get("v"),
+#                 "dew_point":   iaqi.get("dew", {}).get("v"),
+#             })
+
+#         except requests.RequestException as e:
+#             logger.warning(f"AQICN uid={uid} failed: {e}")
+#             continue
+
+#     if not readings:
+#         logger.warning(f"AQICN {city}: no stations returned data")
+#         return None
+
+#     # Use MEDIAN to handle outlier stations
+#     # Mean would be pulled up by stations like Bengaluru Silk Board (549)
+#     aqis       = sorted([r["aqi"] for r in readings])
+#     median_aqi = int(aqis[len(aqis) // 2])
+
+#     # Use weather from station closest to median AQI
+#     closest = min(readings, key=lambda r: abs(r["aqi"] - median_aqi))
+
+#     logger.info(
+#         f"AQICN {city}: {len(readings)} stations | "
+#         f"AQIs={aqis} | "
+#         f"median={median_aqi}"
+#     )
+
+#     return {
+#         "timestamp":      closest["timestamp"],
+#         "aqi":            median_aqi,
+#         "aqi_us":         median_aqi,
+#         "temperature":    closest["temperature"],
+#         "humidity":       closest["humidity"],
+#         "wind_speed":     closest["wind_speed"],
+#         "wind_dir":       closest["wind_dir"],
+#         "wind_gust":      closest["wind_gust"],
+#         "pressure":       closest["pressure"],
+#         "dew_point":      closest["dew_point"],
+#         "city":           city,
+#         "source":         "aqicn",
+#         "stations_used":  len(readings),
+#         "aqi_range":      f"{min(aqis)}-{max(aqis)}",
+#     }
 
 
 def save_current_reading(city: str, reading: dict) -> bool:
