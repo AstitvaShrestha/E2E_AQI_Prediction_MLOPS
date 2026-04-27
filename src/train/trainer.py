@@ -599,10 +599,16 @@ if __name__ == "__main__":
         print(f"  Rows: {len(df):,} | "
               f"{df['ds'].min().date()} → {df['ds'].max().date()}")
 
+
         # SARIMA baseline
-        print(f"  Training SARIMA...")
-        sarima_m = train_sarima(city, df)
-        print(f"  SARIMA  MAE: {sarima_m['mae']:.2f}")
+        if os.getenv("SKIP_SARIMA", "false").lower() != "true":
+            print(f"  Training SARIMA...")
+            sarima_m = train_sarima(city, df)
+            print(f"  SARIMA  MAE: {sarima_m['mae']:.2f}")
+
+        else:
+            print(f"  Skipping SARIMA (set SKIP_SARIMA=false to enable)")
+            sarima_m = {"mae": float(9999), "rmse": float(9999), "mape": float(9999)}
 
         # Prophet
         print(f"  Training Prophet...")

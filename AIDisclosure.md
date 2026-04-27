@@ -1,7 +1,7 @@
 # AI Disclosure — AQI Prediction System
 
 
-**Course:** Graduate Machine Learning Operations (MLOps)
+**Course:** Machine Learning Operations (MLOps)
 **Project:** End-to-End MLOps  
 **Date:** April 2026
 
@@ -231,7 +231,7 @@ Additional AI contributions:
 
 All docstrings and inline comments throughout the codebase were generated with AI assistance. This includes:
 
-- Module-level docstrings explaining file purpose, usage, and data flow (e.g., `openaq.py`, `drift.py`, `trainer.py`, `main.py`)
+- Module-level docstrings explaining file purpose, usage, and data flow (e.g., `openaq.py`, `drift.py`, `trainer.py`, `main.py`, etc.)
 - Function docstrings explaining algorithm steps, parameter descriptions, return types, and fallback chains
 - Inline comments explaining non-obvious logic (e.g., `# KS-test statistical power increases with N`, `# Prophet not thread-safe — workers=1`, `# sort_order=desc is ignored by OpenAQ /hours endpoint`)
 - ASCII art flow diagrams inside DAG files showing task dependencies

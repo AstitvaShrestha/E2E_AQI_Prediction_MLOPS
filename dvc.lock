@@ -36,7 +36,7 @@ stages:
     outs:
     - path: data/baseline/
       hash: md5
-      md5: f60e1164e92a705f0a94b741e23a4490.dir
+      md5: a9958eecc047222177cffbb37d62544a.dir
       size: 3362623
       nfiles: 70
     - path: data/processed/
@@ -59,14 +59,14 @@ stages:
       size: 3692
     - path: src/train/trainer.py
       hash: md5
-      md5: af1505af44ca6e12f60721275ed5526b
-      size: 21631
+      md5: 99be219141589cc00653d5d7f03ce9e2
+      size: 21883
     outs:
     - path: mlflow/artifacts/
       hash: md5
-      md5: 9ddc9c743b37e203e6a71c84500f449b.dir
-      size: 1867227822
-      nfiles: 358
+      md5: 779a71f60a3b22968665d89385b6cda1.dir
+      size: 1912312943
+      nfiles: 367
   evaluate:
     cmd: "docker compose exec fastapi python /app/scripts/evaluate.py\n"
     deps:
@@ -77,16 +77,16 @@ stages:
       nfiles: 5
     - path: mlflow/artifacts/
       hash: md5
-      md5: 9ddc9c743b37e203e6a71c84500f449b.dir
-      size: 1867227822
-      nfiles: 358
+      md5: 779a71f60a3b22968665d89385b6cda1.dir
+      size: 1912312943
+      nfiles: 367
     - path: scripts/evaluate.py
       hash: md5
-      md5: a28eb48c9ea0d0bbf2fe13cb4dda31a0
-      size: 17265
+      md5: 4ade5a9defd7aa1c72a08f673faaf27f
+      size: 17244
     outs:
     - path: reports/
       hash: md5
-      md5: ff6c9967d13ef4a901acc652173fee8f.dir
-      size: 27124
-      nfiles: 12
+      md5: 99ec89434245c15ffed0d24f840cf4fc.dir
+      size: 46698
+      nfiles: 16

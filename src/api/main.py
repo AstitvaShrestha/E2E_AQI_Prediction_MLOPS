@@ -463,37 +463,6 @@ async def latest_aqi(city: str):
         "source":    source,
     }
 
-    
-# @app.get("/drift")
-# async def drift_status():
-#     try:
-#         from concurrent.futures import ThreadPoolExecutor
-#         from src.features.drift import check_drift
-
-#         # Run all 5 cities in parallel instead of sequential
-#         with ThreadPoolExecutor(max_workers=5) as executor:
-#             futures = {
-#                 city: executor.submit(check_drift, city)
-#                 for city in CITIES
-#             }
-#             results = {
-#                 city: future.result()
-#                 for city, future in futures.items()
-#             }
-
-#         cities_drifted = [
-#             city for city, r in results.items()
-#             if r.get("is_drifted") and not r.get("error")
-#         ]
-
-#         return {
-#             "checked_at":       datetime.utcnow().isoformat(),
-#             "cities_drifted":   cities_drifted,
-#             "retrain_required": len(cities_drifted) > 0,
-#             "results":          results,
-#         }
-#     except Exception as e:
-#         raise HTTPException(status_code=500, detail=str(e))
 
 @app.get("/drift")
 async def drift_status(seasonal: bool = False):

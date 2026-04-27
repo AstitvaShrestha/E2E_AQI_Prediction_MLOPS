@@ -80,6 +80,7 @@ x-airflow-common: &airflow-common
     DATA_DIR:             /opt/airflow/data
     PYTHONPATH:           /opt/airflow
     FASTAPI_URL:          http://fastapi:8000
+    SKIP_SARIMA:          "${SKIP_SARIMA:-true}"
   volumes:
     - ./dags:/opt/airflow/dags
     - ./src:/opt/airflow/src

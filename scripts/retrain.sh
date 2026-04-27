@@ -23,3 +23,8 @@ else
       -e PYTHONPATH=/app \
       fastapi python src/train/trainer.py
 fi
+
+echo "Reloading champion models in FastAPI..."
+curl -sf -X POST http://localhost:8000/reload-models > /dev/null 2>&1 && \
+    echo "Models reloaded ✓" || \
+    echo "Warning: could not reload models (FastAPI may not be running)"

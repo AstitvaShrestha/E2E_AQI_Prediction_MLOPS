@@ -169,11 +169,12 @@ aqi_hourly_ingest  (schedule: "5 * * * *")
                 POST /api/v2/dags/aqi_retrain/dagRuns
                     aqi_retrain  (schedule: None)
 ══════════════════════════════════════════════════════
-  get_cities ──► rebuild_features ──► retrain_Delhi     ──┐
-                                   ──► retrain_Mumbai   ──┤
-                                   ──► retrain_Kolkata  ──┼──► reload_api ──► log_summary
-                                   ──► retrain_Chennai  ──┤
-                                   ──► retrain_Bengaluru ─┘
+  get_cities ──► rebuild_features ──► retrain_Delhi    ──┐
+                                  ──► retrain_Mumbai   ──┤
+                                  ──► retrain_Kolkata  ──┼──► reload_api
+                                  ──► log_summary      ──┤
+                                  ──► retrain_Chennai  ──┤
+                                  ──► retrain_Bengaluru ─┘
   (parallel retraining, pool: retrain_pool slots=2)
 
 aqi_backfill  (schedule: None — manual trigger)

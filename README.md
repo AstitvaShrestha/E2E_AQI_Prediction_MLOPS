@@ -1,8 +1,18 @@
-# AirCast — AQI Prediction System
+# AQI Prediction System
 
 End-to-end MLOps system forecasting India CPCB AQI 24 hours ahead for 5 major Indian cities: Delhi, Mumbai, Kolkata, Chennai, and Bengaluru.
 
-**Stack:** Prophet + SARIMA · FastAPI · Streamlit · Airflow 3.1.8 · MLflow 3.11.1 · Prometheus + Grafana · Docker Compose · DVC + DagsHub
+**Github Link**:- https://github.com/DA5402-MLOps-JAN26/assignment-7-AstitvaShrestha/  
+**DAGSHub Link (for dvc and ml artifacts)**:- https://dagshub.com/astitvashrestha1/E2E_AQI_Prediction_MLOPS/  
+
+**Video**:- Included in repo ***Screencast MLOPs E2E AQI Prediction***.
+
+**/docs**:- This folder included in repo contains HLD, LLD, Architecture, test plan & test cases and user manual
+
+**Report**:- Included in repo ***Report_E2E_AQI_Prediction_DA25S013.pdf***. Covers the complete MLOps lifecycle: HLD/LLD, system architecture, DVC pipeline, Airflow DAG flows, inference pipeline design, drift detection algorithm, performance benchmarks (inference latency, API throughput, data pipeline speed), Streamlit UI screenshots, test plan with acceptance criteria, user manual, and known limitations. Average Prophet MAE: 18.32 AQI points across 5 cities.
+
+
+### Stack: Prophet + SARIMA · FastAPI · Streamlit · Airflow 3.1.8 · MLflow 3.11.1 · Prometheus + Grafana · Docker Compose · DVC + DagsHub
 
 ---
 
@@ -42,32 +52,45 @@ Open http://localhost:8501 for the dashboard.
 
 ## Environment Setup
 
-Create a `.env` file in the project root:
+Copy `.env.example` to `.env` and fill in your values:
 
 ```bash
-# API Keys
+cp .env.example .env
+```
+
+Key variables:
+
+```bash
+# API Keys (required)
 OPENAQ_API_KEY=your_openaq_api_key
 AQICN_TOKEN=your_aqicn_token
+DAGSHUB_TOKEN=your_dagshub_token
 
 # Mailtrap SMTP (for email alerts)
 MAILTRAP_USERNAME=your_mailtrap_username
 MAILTRAP_PASSWORD=your_mailtrap_password
 AIRFLOW_ALERT_EMAIL=your_email@example.com
 
-# Airflow
+# Airflow credentials
 AIRFLOW_USERNAME=admin
 AIRFLOW_PASSWORD=admin
-AIRFLOW_BASE_URL=http://localhost:8080
+AIRFLOW_BASE_URL=http://airflow-webserver:8080
+AIRFLOW_UID=1000  # run: id -u to get your UID
 
-# Service URLs (defaults work with Docker Compose)
-MLFLOW_TRACKING_URI=http://mlflow:5000
-FASTAPI_URL=http://fastapi:8000
-DATA_DIR=/app/data
+# Resource tuning (adjust based on your machine)
+AIRFLOW_SCHEDULER_MEM=4g
+AIRFLOW_SCHEDULER_CPUS=4.0
+RETRAIN_POOL_SLOTS=1
+AIRFLOW_PARALLELISM=4
+AIRFLOW_MAX_ACTIVE_TASKS_PER_DAG=4
 ```
 
 Get your free API keys:
 - OpenAQ: https://explore.openaq.org/register
 - AQICN: https://aqicn.org/api/
+- DagsHub token: https://dagshub.com/user/settings/tokens
+
+Kaggle Dataset: https://www.kaggle.com/datasets/bhautikvekariya21/air-quality-dataset-indian-cities-2022-2025?resource=download
 
 ---
 
@@ -78,7 +101,7 @@ Get your free API keys:
 | Dashboard | http://localhost:8501 | None |
 | FastAPI docs | http://localhost:8000/docs | None |
 | MLflow UI | http://localhost:5000 | None |
-| Airflow UI | http://localhost:8080 | admin / admin |
+| Airflow UI | http://localhost:8080 | admin / &lt;check AIRFLOW_PASSWORD in .env&gt; |
 | Grafana | http://localhost:3001 | admin / admin |
 | Prometheus | http://localhost:9090 | None |
 | AlertManager | http://localhost:9093 | None |
@@ -111,7 +134,7 @@ aqi_prediction/
 ├── scripts/
 │   ├── seed_from_kaggle.py        # Seed from Kaggle dataset
 │   ├── evaluate.py                # Model evaluation report
-│   ├── find_sensor_ids.py         # AQICN station UID discovery
+│   ├── find_sensor_ids.py         # OPENAQ station ID discovery
 │   ├── start_demo.sh              # One-command startup
 │   └── retrain.sh                 # Manual retraining
 ├── monitoring/
@@ -130,7 +153,7 @@ aqi_prediction/
 │   ├── requirements.airflow.txt
 │   └── requirements.frontend.txt
 ├── tests/
-│   └── test_aqi_prediction.py     # 72 unit + integration tests
+│   └── test_aqi_prediction.py     # 72 (unit + integration tests)
 ├── docs/
 │   ├── HLD.md
 │   ├── LLD.md
@@ -209,12 +232,17 @@ sudo docker compose run --rm \
 
 ### Train models
 
+> **Note:** Run these with the full stack stopped (`docker compose down`) to avoid SQLite
+> write conflicts on `mlflow.db`. `docker compose run` starts MLflow automatically.
+> To retrain while the stack is running, use the Airflow `aqi_retrain` DAG instead.
+
 ```bash
-# Train all 5 cities (Prophet + SARIMA, logs to MLflow)
+# Train all 5 cities (Prophet only)
 sudo docker compose run --rm \
   -e MLFLOW_TRACKING_URI=http://mlflow:5000 \
   -e DATA_DIR=/app/data \
   -e PYTHONPATH=/app \
+  -e SKIP_SARIMA=true \
   fastapi python src/train/trainer.py
 
 # Train single city
@@ -222,6 +250,7 @@ sudo docker compose run --rm \
   -e MLFLOW_TRACKING_URI=http://mlflow:5000 \
   -e DATA_DIR=/app/data \
   -e PYTHONPATH=/app \
+  -e SKIP_SARIMA=true \
   fastapi python src/train/trainer.py --city Delhi
 ```
 

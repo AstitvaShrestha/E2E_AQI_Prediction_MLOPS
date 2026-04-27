@@ -19,7 +19,7 @@ cd "$(dirname "$0")/.."
 
 echo ""
 echo "[1/5] Starting infrastructure..."
-docker compose up -d postgres mlflow prometheus grafana
+docker compose up -d postgres mlflow prometheus grafana alertmanager
 sleep 10
 
 echo "[2/5] Waiting for MLflow..."
@@ -42,6 +42,9 @@ sleep 10
 echo "      Frontend ready ✓"
 
 echo "[5/5] Starting Airflow..."
+docker compose up -d airflow-init
+echo "      Waiting for Airflow init (DB migration + user creation)..."
+sleep 20
 docker compose up -d airflow-webserver airflow-scheduler airflow-dag-processor
 sleep 10
 echo "      Airflow starting (takes ~60 seconds)..."
@@ -54,7 +57,7 @@ echo ""
 echo "  Streamlit dashboard : http://localhost:8501"
 echo "  FastAPI docs        : http://localhost:8000/docs"
 echo "  MLflow UI           : http://localhost:5000"
-echo "  Airflow UI          : http://localhost:8080"
+echo "  Airflow UI          : http://localhost:8080  (admin / check .env AIRFLOW_PASSWORD)"
 echo "  Grafana             : http://localhost:3001  (admin/admin)"
 echo "  Prometheus          : http://localhost:9090"
 echo ""
