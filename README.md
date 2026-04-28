@@ -2,7 +2,7 @@
 
 End-to-end MLOps system forecasting India CPCB AQI 24 hours ahead for 5 major Indian cities: Delhi, Mumbai, Kolkata, Chennai, and Bengaluru.
 
-**Github Link**:- https://github.com/AstitvaShrestha/E2E_AQI_Prediction_MLOPS/  
+**Github Link**:- https://github.com/AstitvaShrestha/E2E_AQI_Prediction_MLOPS/   
 
 **DAGSHub Link (for dvc and ml artifacts)**:- https://dagshub.com/astitvashrestha1/E2E_AQI_Prediction_MLOPS/  
 

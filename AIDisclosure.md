@@ -235,6 +235,8 @@ All docstrings and inline comments throughout the codebase were generated with A
 - Function docstrings explaining algorithm steps, parameter descriptions, return types, and fallback chains
 - Inline comments explaining non-obvious logic (e.g., `# KS-test statistical power increases with N`, `# Prophet not thread-safe — workers=1`, `# sort_order=desc is ignored by OpenAQ /hours endpoint`)
 - ASCII art flow diagrams inside DAG files showing task dependencies
+- In generating template for UI in Streamlit
+- For HLD, LLD diagram generation
 - Section separator comments (`# ── Layer name ──────`)
 
 ## 4. Reflection
